@@ -924,6 +924,8 @@ final name = ref.watch(userProvider.select((u) => u.name));
 
 ### 7.2 List Performance
 
+`ListView` without a builder instantiates every child widget upfront, even those off-screen — fine for 5 items, catastrophic for 500. `ListView.builder` renders only the items currently visible (plus a small cache margin), making scroll performance O(visible items) instead of O(total items). When all items have the same height, providing `itemExtent` gives Flutter an additional win: it can calculate each item's position mathematically and skip the per-item layout pass entirely.
+
 ```dart
 // BAD: builds all items upfront
 ListView(children: items.map((i) => ItemCard(i)).toList())
