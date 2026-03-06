@@ -674,6 +674,8 @@ else
 
 ### 5.1 Future & async/await
 
+A `Future<T>` represents a value that will be available at some point in the future — Dart's equivalent of a Promise. `async/await` is syntactic sugar over Future chaining (`.then`/`.catchError`) that makes asynchronous code read like synchronous code. Because Dart is single-threaded, Futures don't run in parallel — they interleave on the event loop. To truly run things in parallel, combine multiple Futures with `.wait` or use isolates.
+
 ```dart
 Future<User> getUser(String id) async {
   final response = await http.get(Uri.parse('/users/$id'));
@@ -698,6 +700,10 @@ final (user, config) = await (getUser(id), getAppConfig()).wait;
 ---
 
 ### 5.2 Streams
+
+A `Stream<T>` is an asynchronous sequence of events — think of it as an async `Iterable`. Unlike a `Future` (one value, then done), a Stream can deliver zero, one, or many values over time. Common real-world streams: Firebase auth state changes, Bluetooth device events, WebSocket messages, or location updates.
+
+**Single-subscription streams** can only have one listener at a time and buffer events until that listener is attached — suited for one-off operations like reading a file. **Broadcast streams** support multiple simultaneous listeners and don't buffer — suited for event buses and state changes.
 
 ```dart
 // Single subscription (default) — like a pipe
@@ -725,7 +731,8 @@ Stream<int> countdown(int from) async* {
 }
 ```
 
-**StreamBuilder in Flutter:**
+**StreamBuilder in Flutter** subscribes to a stream when the widget is inserted and automatically unsubscribes when it is removed — you don't manage the subscription lifecycle manually. Each new event triggers a rebuild with an updated `AsyncSnapshot`:
+
 ```dart
 StreamBuilder<User?>(
   stream: authRepository.authStateChanges,
