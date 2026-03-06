@@ -1287,6 +1287,8 @@ final didAuthenticate = await auth.authenticate(
 
 ### 11.1 Semantics Widget
 
+The `Semantics` widget provides metadata to the OS accessibility layer — TalkBack on Android and VoiceOver on iOS — so screen readers can describe your UI to visually impaired users. You only need `Semantics` manually for **custom widgets** built with `GestureDetector`, `InkWell`, or custom painting, where Flutter can't infer intent automatically.
+
 ```dart
 Semantics(
   label: 'Start session',
@@ -1299,13 +1301,13 @@ Semantics(
 )
 ```
 
-Most built-in widgets (`ElevatedButton`, `Text`, `Image`) set semantics automatically.
+Most built-in widgets (`ElevatedButton`, `Text`, `Image`) set semantics automatically — use `Semantics` only when the built-in behaviour is insufficient.
 
 ---
 
 ### 11.2 Touch Target Size
 
-Material spec: minimum 48×48 dp touch target.
+Small touch targets directly harm motor-impaired users, people with tremors, and anyone using a phone one-handed. The Material Design spec mandates a minimum 48×48 dp touch area — even if the visual element is smaller — to ensure comfortable tapping without precision. When the visual and touch areas differ, Flutter handles the extra tap area invisibly via `MaterialTapTargetSize`.
 
 ```dart
 // If the visual element is smaller, wrap it
@@ -1314,8 +1316,9 @@ SizedBox(
   height: 48,
   child: IconButton(icon: const Icon(Icons.close), onPressed: _close),
 )
-// Or use: IconButton already provides 48dp minimum by default
 ```
+
+Note: `IconButton` already enforces a 48dp minimum touch target by default — you only need the `SizedBox` wrapper for fully custom hit areas.
 
 ---
 
