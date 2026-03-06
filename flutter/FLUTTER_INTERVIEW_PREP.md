@@ -434,7 +434,28 @@ counter.value++;
 
 ### 3.4 Riverpod (Modern Standard)
 
-Riverpod is compile-safe, testable, and doesn't require `BuildContext` for logic.
+Riverpod was written by the same author as Provider (Remi Rousselet) specifically to fix Provider's fundamental limitations. Provider is built on top of `InheritedWidget` — which means it inherits all of InheritedWidget's constraints. Riverpod replaces InheritedWidget with its own global provider registry, solving those pain points at the root.
+
+**Why Riverpod over Provider:**
+
+| Provider problem | Riverpod solution |
+|---|---|
+| Needs `BuildContext` to read state — can't use in services or repositories | `ref.read(provider)` works anywhere, no context required |
+| Runtime crash (`ProviderNotFoundException`) if provider missing from tree | Compile-time error — providers are global constants |
+| No built-in async state (`loading` / `error` / `data`) | `AsyncValue<T>` is first-class: `.when(data, loading, error)` |
+| Testing requires pumping a full widget tree | `ProviderContainer` with overrides — pure Dart, no widgets needed |
+| Difficult to scope/dispose providers | `autoDispose` and `family` are built-in modifiers |
+
+**Provider types — pick the right one:**
+
+| Provider | Use when |
+|---|---|
+| `Provider` | Expose a constant value or service (e.g. `ApiClient`) |
+| `StateProvider` | Simple, synchronous state with no business logic (e.g. a counter, a filter value) |
+| `FutureProvider` | Expose the result of a one-time async call (e.g. initial config fetch) |
+| `StreamProvider` | Expose a stream (e.g. Firebase auth state, WebSocket) |
+| `NotifierProvider` | Synchronous state + methods (replaces `StateNotifierProvider`) |
+| `AsyncNotifierProvider` | Async state + methods — most common for feature state |
 
 ```dart
 // 1. Define a provider
@@ -444,6 +465,7 @@ final userProvider = AsyncNotifierProvider<UserNotifier, User>(() {
 
 class UserNotifier extends AsyncNotifier<User> {
   @override
+  // build() is called once on first watch — like initState for state
   Future<User> build() => ref.read(userRepositoryProvider).getCurrentUser();
 
   Future<void> logout() async {
@@ -468,19 +490,45 @@ class ProfileScreen extends ConsumerWidget {
 }
 ```
 
-**Key Riverpod concepts:**
-- `ref.watch` — rebuild on change (use in `build`)
-- `ref.read` — one-time read, no rebuild (use in callbacks)
-- `ref.listen` — react to changes without rebuilding (side effects)
-- `Provider.family` — parameterized providers
-- `Provider.autoDispose` — clean up when no longer watched
+**`ref` — the three methods you must know:**
+
+```dart
+// ref.watch — subscribe: rebuilds widget when value changes. Only in build().
+final user = ref.watch(userProvider);
+
+// ref.read — one-shot read, no subscription. Use in callbacks and methods.
+final repo = ref.read(userRepositoryProvider);
+
+// ref.listen — react to changes without rebuilding. Use for side effects.
+ref.listen(authProvider, (prev, next) {
+  if (next is Unauthenticated) context.go('/login');
+});
+```
+
+**Modifiers:**
+
+```dart
+// family — parameterised provider. Each unique argument gets its own instance.
+final userByIdProvider = FutureProvider.family<User, String>((ref, id) {
+  return ref.read(repoProvider).getUser(id);
+});
+ref.watch(userByIdProvider('abc-123'));
+
+// autoDispose — provider is destroyed when no widget watches it anymore.
+// Combine with family for per-route data that cleans itself up.
+final searchProvider = StateProvider.autoDispose<String>((ref) => '');
+```
 
 ---
 
 ### 3.5 Bloc / Cubit
 
+Bloc implements the **unidirectional data flow** pattern strictly: UI dispatches `Events` → Bloc processes them and emits `States` → UI rebuilds. Everything goes through the event stream — you never call business logic directly from a button handler.
+
+**Cubit** is Bloc without the event layer. You call methods directly on the Cubit (like a Riverpod Notifier), and it emits states. Use Cubit when state transitions are straightforward; use Bloc when you need auditability, replay, or the ability to log/test every discrete event.
+
 ```dart
-// Cubit: simpler, emits states directly
+// Cubit: method calls → state emissions
 class AuthCubit extends Cubit<AuthState> {
   AuthCubit(this._authRepo) : super(AuthInitial());
 
@@ -497,27 +545,81 @@ class AuthCubit extends Cubit<AuthState> {
   }
 }
 
-// Bloc: events → states (more explicit, better for complex flows)
+// Bloc: events → states (each transition is explicit and traceable)
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc(this._authRepo) : super(AuthInitial()) {
     on<LoginRequested>(_onLoginRequested);
+    on<LogoutRequested>(_onLogoutRequested);
   }
 
-  Future<void> _onLoginRequested(LoginRequested event, Emitter<AuthState> emit) async {
+  Future<void> _onLoginRequested(
+    LoginRequested event,
+    Emitter<AuthState> emit,
+  ) async {
     emit(AuthLoading());
-    // ...
+    try {
+      final user = await _authRepo.login(event.email, event.password);
+      emit(AuthAuthenticated(user));
+    } catch (e) {
+      emit(AuthError(e.toString()));
+    }
   }
 }
 ```
 
+**Consuming Bloc in the UI:**
+
+```dart
+// BlocBuilder — rebuilds on every new state
+BlocBuilder<AuthBloc, AuthState>(
+  builder: (context, state) {
+    return switch (state) {
+      AuthLoading()        => const CircularProgressIndicator(),
+      AuthAuthenticated(user: final u) => HomeScreen(user: u),
+      AuthError(message: final m)      => Text(m),
+      _                    => const LoginScreen(),
+    };
+  },
+)
+
+// BlocListener — side effects only, no rebuild (navigation, snackbars)
+BlocListener<AuthBloc, AuthState>(
+  listener: (context, state) {
+    if (state is AuthAuthenticated) context.go('/home');
+  },
+  child: const LoginForm(),
+)
+
+// BlocConsumer — both (use sparingly; split into Builder + Listener if possible)
+```
+
 **When to use Bloc over Cubit?**
-> When state transitions are complex, auditable, or need to be logged/replayed. Bloc's event stream is fully serializable.
+> When state transitions need to be **auditable** (logged, replayed, or tested as a sequence of events). Bloc's event objects are serialisable — you can record every user action and replay them deterministically, which is invaluable for bug reports and analytics.
 
 ---
 
-### 3.6 How to answer "Which state management do you use?"
+### 3.6 Riverpod vs Provider vs Bloc — The Decision Table
 
-> "I evaluate based on three things: **scope** (is this local or global state?), **team familiarity**, and **testability requirements**. For local UI state I use `setState` or `ValueNotifier`. For feature-level shared state I lean on **Riverpod** because it's compile-safe and doesn't require a context to read state in business logic. For teams already on Bloc, I'm comfortable there too — the explicitness of events is valuable in complex, auditable flows like auth or payment."
+| Dimension | Provider | Riverpod | Bloc |
+|---|---|---|---|
+| **Context required?** | Yes — `context.read/watch` | No — `ref` works anywhere | No — events dispatched via `add()` |
+| **Async state built-in?** | No — manual handling | Yes — `AsyncValue<T>` | No — manual `Loading/Error/Data` states |
+| **DI container?** | Yes (via tree) | Yes (global registry) | No — needs get_it or Riverpod alongside |
+| **Testability** | Needs widget tree | `ProviderContainer` alone | `bloc_test` package; no widgets needed |
+| **Compile safety** | Runtime errors | Compile-time errors | Compile-time (typed events/states) |
+| **Learning curve** | Low | Medium | Medium-High |
+| **Best for** | Simple apps, legacy | Modern apps, any scale | Complex flows, event sourcing, auditability |
+
+**The mental model:**
+- **Provider** = `InheritedWidget` with ergonomics. Good start, hits limits fast.
+- **Riverpod** = Provider reimagined. State management **and** DI container. Default choice.
+- **Bloc** = strict event machine. More boilerplate, but every state transition is traceable. Ideal when the product team or compliance needs an audit trail (payments, auth, medical).
+
+---
+
+### 3.7 How to answer "Which state management do you use?"
+
+> "I evaluate based on three things: **scope** (is this local or global state?), **team familiarity**, and **testability requirements**. For local UI state I use `setState` or `ValueNotifier`. For feature-level shared state I reach for **Riverpod** — it's compile-safe, doesn't need a `BuildContext` in business logic, handles async state out of the box, and doubles as a DI container so I don't need a separate `get_it` setup. For teams already on Bloc I'm comfortable there too — the explicitness of events is genuinely valuable in complex, auditable flows like auth or payments. I'd only reach for plain Provider in a legacy codebase where a migration isn't justified."
 
 ---
 
@@ -525,10 +627,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
 
 | Question | Answer |
 |----------|--------|
-| What is `ChangeNotifier`? | Base class that notifies listeners. Foundation of Provider |
-| Provider vs Riverpod? | Riverpod: no context in logic, compile-safe, better scoping, testable without app |
-| Can Bloc replace Riverpod? | Yes for state, but they solve slightly different problems. Bloc is pure state machine; Riverpod is also a DI container |
-| What is `BlocBuilder` vs `BlocListener`? | Builder: rebuilds UI. Listener: one-time side effects (snackbar, nav) |
+| What is `ChangeNotifier`? | Base class that notifies listeners on `notifyListeners()`. Foundation of Provider; Riverpod's `Notifier` replaces it |
+| Provider vs Riverpod? | Riverpod: no context in logic, compile-safe, `AsyncValue` built-in, `ProviderContainer` for tests, better scoping |
+| Cubit vs Bloc? | Cubit: direct method calls, simpler. Bloc: event objects, fully serialisable state machine, better for audit trails |
+| Can Bloc replace Riverpod? | For state yes, but not for DI — you'd still need get_it. Riverpod does both. They can coexist |
+| What is `BlocBuilder` vs `BlocListener`? | Builder: rebuilds UI on state change. Listener: one-time side effects only (navigation, snackbars) |
+| What is `ref.watch` vs `ref.read`? | `watch`: subscribes, widget rebuilds on change — use in `build()`. `read`: one-shot, no subscription — use in callbacks |
 
 ---
 
