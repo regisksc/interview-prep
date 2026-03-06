@@ -1362,6 +1362,8 @@ Text(
 
 ### 12.1 Typical Flutter CI Pipeline
 
+A CI pipeline automates quality gates so no broken code reaches production. The structure follows a **fail-fast** principle: the `test` job runs first and cheaper checks (format, analyse, test) happen before expensive ones (build). The `needs: test` declaration on build jobs means they don't start — and don't waste build minutes — if tests fail. Coverage is measured with `lcov` and converted to HTML for human review.
+
 ```yaml
 # GitHub Actions example
 jobs:
@@ -1391,6 +1393,8 @@ jobs:
 
 ### 12.2 Versioning
 
+Flutter uses a two-part version string: the **semantic version** (`2.4.1`) is shown to users in app stores and follows semver (major.minor.patch). The **build number** (`+47`) is an integer used by the stores to identify submissions — it must be strictly monotonically increasing with each upload. In CI, you typically set it automatically using the pipeline run number (`--build-number=$GITHUB_RUN_NUMBER`) so you never manually track it.
+
 ```yaml
 # pubspec.yaml
 version: 2.4.1+47
@@ -1403,12 +1407,14 @@ version: 2.4.1+47
 
 ### 12.3 Flavors / Build Variants
 
+Flavors are named build configurations defined at the platform level — **product flavors** in Android's Gradle and **schemes/targets** in Xcode. Each flavor can have its own bundle ID, app icon, display name, and environment configuration. The `-t lib/main_dev.dart` flag selects a separate entry point per flavor, which typically calls `runApp` with environment-specific configuration (API URL, feature flags, analytics keys). This is how you avoid accidentally shipping dev endpoints to production users.
+
 ```
 flutter build apk --flavor development -t lib/main_dev.dart
 flutter build apk --flavor production  -t lib/main_prod.dart
 ```
 
-Different API URLs, app icons, bundle IDs per flavor.
+Common flavor set: `development` (local / debug), `staging` (QA / internal), `production` (app store release).
 
 ---
 
