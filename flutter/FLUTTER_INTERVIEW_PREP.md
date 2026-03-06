@@ -611,6 +611,8 @@ class AuthRepositoryImpl implements AuthRepository {
 
 ### 4.3 Dependency Injection
 
+Dependency Injection (DI) is the practice of providing a class's dependencies from outside rather than letting it create them internally. This decouples components: a `LoginScreen` doesn't know whether it's talking to a real HTTP server or a fake in-memory one — it just receives whatever satisfies the `AuthRepository` interface. In Flutter, the two common approaches are `get_it` (a service locator) and Riverpod (where providers double as a DI container).
+
 ```dart
 // get_it + injectable
 @module
@@ -637,6 +639,8 @@ With Riverpod: providers ARE your DI container. No separate setup needed.
 ---
 
 ### 4.4 Feature Flags
+
+Feature flags decouple feature releases from code deployments. You ship code disabled by default, then enable it progressively — by user percentage, user segment, or A/B test — without a new app store submission. This reduces risk (easy rollback: just flip the flag), enables experimentation, and lets you test in production with a subset of real users before a full rollout.
 
 ```dart
 // Simple: remote config (Firebase Remote Config, LaunchDarkly)
