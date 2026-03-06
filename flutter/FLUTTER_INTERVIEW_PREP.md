@@ -1151,7 +1151,7 @@ channel.setMethodCallHandler { call, result in
 
 ### 9.2 EventChannel
 
-Native → Flutter stream:
+Use `EventChannel` when native code needs to push a **continuous stream of events** to Dart — for example, sensor readings, Bluetooth device discoveries, or network connectivity changes. Unlike `MethodChannel` (one request → one response), an EventChannel establishes a persistent subscription: the native side calls `eventSink.success(data)` repeatedly, and Dart receives each emission as a stream event.
 
 ```dart
 // Dart
@@ -1165,7 +1165,7 @@ Stream<SensorData> get sensorStream =>
 
 ### 9.3 Pigeon (Recommended for new code)
 
-Type-safe codegen for platform channels — no stringly-typed method names:
+Pigeon is Google's code generator for platform channels. You define the API once in Dart using annotations, then run `dart run pigeon --input pigeons/biometric.dart` to generate type-safe Swift, Kotlin, and Dart glue code. This eliminates stringly-typed method names (the root cause of most channel bugs) and gives you compile-time verification that both sides of the channel agree on method signatures and argument types.
 
 ```dart
 // Define in Dart, generates Swift/Kotlin stubs
@@ -1179,7 +1179,9 @@ abstract class BiometricApi {
 
 ### 9.4 FFI (Dart Foreign Function Interface)
 
-For calling C libraries directly (without platform channel overhead):
+FFI lets Dart call C/C++ functions directly, bypassing the platform channel serialization overhead entirely — no message encoding, no round-trip to the platform thread. Use it for performance-critical native code (image codecs, cryptography, ML inference runtimes) where the channel overhead would be prohibitive. The trade-off: FFI is more complex (you manage C memory and pointer types manually) and platform channel safety guarantees don't apply.
+
+`DynamicLibrary.open` loads a native shared library; `lookupFunction` resolves a symbol by name and binds it to a Dart function type. The two type parameters are: `<NativeType, DartType>`.
 
 ```dart
 final dylib = DynamicLibrary.open('libcrypto.so');
