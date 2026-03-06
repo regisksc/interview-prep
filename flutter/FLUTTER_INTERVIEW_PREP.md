@@ -401,6 +401,8 @@ No single right answer — the senior answer is knowing **when to use which.**
 
 ### 3.2 setState — Know its limits
 
+`setState` is the built-in mechanism for triggering a rebuild of a `StatefulWidget`. It schedules a rebuild of the widget's subtree by marking the element dirty — Flutter then calls `build()` again on the next frame. It is synchronous (the callback runs immediately), but the actual rebuild is deferred to the next frame.
+
 ```dart
 setState(() => _isLoading = true);
 ```
