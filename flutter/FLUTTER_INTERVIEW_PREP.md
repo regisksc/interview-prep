@@ -1240,6 +1240,8 @@ Prevents MITM attacks even if device has rogue CA:
 
 ### 10.3 Biometric Auth
 
+The `local_auth` package delegates to the OS biometric stack: Face ID / Touch ID on iOS, and fingerprint / face unlock on Android (via BiometricPrompt). It never accesses the biometric data itself — authentication happens entirely inside the secure enclave. Always plan for a fallback: if no biometrics are enrolled, or the user fails too many attempts, the OS falls back to PIN or password. Check `auth.canCheckBiometrics` and `auth.getAvailableBiometrics()` before showing the biometric prompt.
+
 ```dart
 // local_auth package
 final auth = LocalAuthentication();
