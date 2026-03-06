@@ -1052,6 +1052,8 @@ group('LoginUseCase', () {
 
 ### 8.3 Widget Tests
 
+Widget tests render a widget tree in a test environment (no real device needed) and let you interact with it programmatically. `pumpWidget` inserts the widget into the test harness and renders one frame. When using Riverpod, you provide a `ProviderContainer` with overrides so the widget uses fakes instead of real services — keeping tests fast and deterministic without network calls.
+
 ```dart
 testWidgets('shows loading indicator while logging in', (tester) async {
   // Arrange
@@ -1076,6 +1078,8 @@ testWidgets('shows loading indicator while logging in', (tester) async {
 ---
 
 ### 8.4 Mocking with mocktail
+
+`mocktail` is preferred over `mockito` because it requires **no code generation** — you extend `Mock` directly and stub with `when`/`verify` without running `build_runner`. In clean architecture, you mock at the repository boundary: the use case (or cubit) under test receives a `MockAuthRepository` and you verify that the right methods are called with the right arguments.
 
 ```dart
 // Define mock
