@@ -853,6 +853,8 @@ final router = GoRouter(
 
 ### 6.2 Navigation Patterns
 
+Understanding the distinction between navigation methods is a common interview question. The key difference: `go` replaces the entire navigation stack (the user cannot go back), while `push` adds to the stack (the back button remains). Use `go` for top-level route changes (e.g., post-login redirect), `push` for modal or detail screens, and `replace` when you want to swap the current route without adding to history.
+
 ```dart
 // Push
 context.go('/home/profile/123');
