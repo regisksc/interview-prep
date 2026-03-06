@@ -96,6 +96,8 @@ var count = 0;                  // mutable
 
 ### 1.3 Generics
 
+Generics allow you to write reusable, type-safe code that works with any type. Instead of duplicating `UserRepository`, `OrderRepository`, etc., you define one generic `Repository<T>` and the compiler enforces the correct type at every call site. `<T>` is a type parameter — a placeholder substituted at compile time by the concrete type you provide.
+
 ```dart
 class Repository<T> {
   Future<T> findById(String id) async { ... }
@@ -143,6 +145,8 @@ class AuthService with Loggable {
 
 ### 1.6 Callable Classes & `typedef`
 
+A `typedef` creates a named alias for a function type, making signatures more readable and allowing functions to be passed as first-class values — the foundation of callback and strategy patterns in Dart.
+
 ```dart
 typedef Predicate<T> = bool Function(T value);
 
@@ -150,9 +154,28 @@ bool isAdult(int age) => age >= 18;
 Predicate<int> check = isAdult;
 ```
 
+A **callable class** implements `call()` so that instances can be invoked with function syntax. Useful when a "function" needs to carry state or configuration.
+
+```dart
+class RangeValidator {
+  final int min;
+  final int max;
+  const RangeValidator(this.min, this.max);
+
+  bool call(int value) => value >= min && value <= max;
+}
+
+final inRange = RangeValidator(0, 100);
+inRange(42); // true — called exactly like a function
+```
+
 ---
 
 ### 1.7 Pattern Matching (Dart 3+)
+
+Dart 3 introduced first-class pattern matching — the ability to match on the *shape and content* of values, not just equality. This eliminates verbose `if`/`else` chains and `is`/`as` casts, producing code that is both shorter and safer.
+
+**Switch expressions** replace multi-branch if-else chains with a concise, exhaustive form:
 
 ```dart
 // Switch expressions
@@ -163,10 +186,12 @@ String describe(Object obj) => switch (obj) {
   _ => 'unknown',
 };
 
-// Destructuring records
+// Destructuring records unpacks multiple values at once — no positional indexing needed
 final (name, age) = ('Regis', 30);
 
-// Sealed classes + exhaustive switch
+// Sealed classes define a *closed* type hierarchy — only subclasses in the same
+// library are allowed. The compiler then makes switch exhaustive: every subtype
+// must be handled or it's a compile-time error, not a runtime crash.
 sealed class AuthState {}
 class Authenticated extends AuthState { final String userId; Authenticated(this.userId); }
 class Unauthenticated extends AuthState {}
