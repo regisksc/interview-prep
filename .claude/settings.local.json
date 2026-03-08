@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git checkout*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git pull*)",
+      "Bash(git stash*)",
+      "Bash(git reset*)",
+      "Bash(git show*)",
+      "Bash(*git *)",
+      "Bash(mkdir*)",
+      "Bash(ls*)",
+      "Bash(git push origin main)",
+      "Bash(flutter --version 2>/dev/null || echo \"FLUTTER_NOT_FOUND\")",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges && flutter create --empty --no-pub 01_dart_fundamentals 2>&1 | tail -3)",
+      "Bash(flutter create --empty --no-pub dart_fundamentals 2>&1 | tail -3 && flutter create --empty --no-pub widget_lifecycle 2>&1 | tail -3 && flutter create --empty --no-pub state_management 2>&1 | tail -3 && flutter create --empty --no-pub async_streams 2>&1 | tail -3 && flutter create --empty --no-pub performance 2>&1 | tail -3)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/state_management && flutter pub get 2>&1 | tail -5)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice && flutter create --empty --no-pub riverpod_starter 2>&1 | tail -3)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/riverpod_starter && flutter pub get 2>&1 | tail -3)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/dart_fundamentals && flutter analyze 2>&1 | tail -5)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/widget_lifecycle && flutter analyze 2>&1 | tail -5)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/async_streams && flutter analyze 2>&1 | tail -5)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/performance && flutter analyze 2>&1 | tail -5)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/state_management && flutter analyze 2>&1 | tail -10)",
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/widget_lifecycle && flutter analyze 2>&1 | tail -5 && cd ../async_streams && flutter analyze 2>&1 | tail -5)"
+    ],
+    "deny": [
+      "Bash(rm -rf*)"
+    ]
+  }
+}
