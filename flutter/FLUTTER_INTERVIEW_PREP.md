@@ -457,6 +457,91 @@ Riverpod was written by the same author as Provider (Remi Rousselet) specificall
 | `NotifierProvider` | Synchronous state + methods (replaces `StateNotifierProvider`) |
 | `AsyncNotifierProvider` | Async state + methods — most common for feature state |
 
+**Declaration and usage examples for each provider type:**
+
+```dart
+// Provider — exposes a constant value or service, never changes
+final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
+
+// Usage: read in a notifier or widget; no rebuild triggered
+final client = ref.read(apiClientProvider);
+
+
+// StateProvider — simple synchronous state, no business logic
+final counterProvider = StateProvider<int>((ref) => 0);
+
+// Usage: ref.watch rebuilds widget; ref.notifier exposes the StateController
+final count = ref.watch(counterProvider);           // int
+ref.read(counterProvider.notifier).state++;         // mutate
+
+
+// FutureProvider — wraps a one-time async call, exposes AsyncValue
+final configProvider = FutureProvider<AppConfig>((ref) async {
+  return ref.read(configServiceProvider).load();
+});
+
+// Usage: .when handles loading / error / data automatically
+ref.watch(configProvider).when(
+  data:    (cfg)  => Text(cfg.theme),
+  loading: ()     => const CircularProgressIndicator(),
+  error:   (e, _) => Text('$e'),
+);
+
+
+// StreamProvider — wraps a stream, exposes AsyncValue on every emission
+final authStateProvider = StreamProvider<User?>((ref) {
+  return FirebaseAuth.instance.authStateChanges();
+});
+
+// Usage: same .when API as FutureProvider
+ref.watch(authStateProvider).when(
+  data:    (user)  => user == null ? LoginPage() : HomePage(),
+  loading: ()      => const SplashScreen(),
+  error:   (e, _)  => Text('Auth error: $e'),
+);
+
+
+// NotifierProvider — synchronous state + methods (replaces StateNotifierProvider)
+final themeProvider = NotifierProvider<ThemeNotifier, ThemeMode>(ThemeNotifier.new);
+
+class ThemeNotifier extends Notifier<ThemeMode> {
+  @override
+  ThemeMode build() => ThemeMode.system;   // initial state
+
+  void toggle() {
+    state = state == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+  }
+}
+
+// Usage
+final mode = ref.watch(themeProvider);               // ThemeMode
+ref.read(themeProvider.notifier).toggle();           // call method
+
+
+// AsyncNotifierProvider — async state + methods, most common for feature state
+final cartProvider = AsyncNotifierProvider<CartNotifier, List<CartItem>>(CartNotifier.new);
+
+class CartNotifier extends AsyncNotifier<List<CartItem>> {
+  @override
+  Future<List<CartItem>> build() =>
+      ref.read(cartRepositoryProvider).fetchCart();  // called once on first watch
+
+  Future<void> addItem(Product p) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(
+      () => ref.read(cartRepositoryProvider).add(p),
+    );
+  }
+}
+
+// Usage
+ref.watch(cartProvider).when(
+  data:    (items) => CartList(items),
+  loading: ()      => const CircularProgressIndicator(),
+  error:   (e, _)  => Text('$e'),
+);
+```
+
 ```dart
 // 1. Define a provider
 final userProvider = AsyncNotifierProvider<UserNotifier, User>(() {
