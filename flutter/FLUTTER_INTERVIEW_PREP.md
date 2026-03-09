@@ -1321,61 +1321,211 @@ for (var i = 0; i < 1000; i++) {
 
 ---
 
-### 6.1 GoRouter (Recommended)
+### 6.1 Navigator 1 vs Navigator 2
+
+**Navigator 1** is imperative: you call `push`/`pop` directly and Flutter manages a stack of routes internally. Simple, but no URL support, no deep linking, and no way to declaratively express which screen should be showing.
+
+**Navigator 2** is declarative: you give Flutter a list of `Page` objects and it figures out the stack. This enables deep linking, browser back button support, and URL-driven navigation — but the raw API is verbose and error-prone to use directly.
+
+**GoRouter** wraps Navigator 2 with a clean, URL-based API. It handles deep links, redirects, nested navigation, and web support without exposing Navigator 2 complexity. It's the Flutter team's recommended solution.
+
+---
+
+### 6.2 GoRouter
 
 ```dart
+// main.dart
 final router = GoRouter(
   initialLocation: '/home',
+  debugLogDiagnostics: true, // logs every navigation event in debug mode
+
+  // Global redirect — runs before every navigation
   redirect: (context, state) {
     final isLoggedIn = ref.read(authProvider).isAuthenticated;
-    if (!isLoggedIn && !state.location.startsWith('/auth')) return '/auth/login';
-    return null;
+    final isOnAuth = state.matchedLocation.startsWith('/auth');
+    if (!isLoggedIn && !isOnAuth) return '/auth/login';
+    if (isLoggedIn && isOnAuth) return '/home'; // redirect away from login if already authed
+    return null; // null = proceed normally
   },
+
   routes: [
+    // Top-level route with nested child
     GoRoute(
       path: '/home',
       builder: (context, state) => const HomeScreen(),
       routes: [
         GoRoute(
-          path: 'profile/:userId',
+          path: 'profile/:userId',       // nested path — full URL: /home/profile/:userId
           builder: (context, state) {
             final userId = state.pathParameters['userId']!;
-            return ProfileScreen(userId: userId);
+            final tab    = state.uri.queryParameters['tab']; // optional query param
+            return ProfileScreen(userId: userId, tab: tab);
           },
         ),
       ],
     ),
+
+    // ShellRoute — shared persistent UI (bottom nav, drawer) across child routes
     ShellRoute(
       builder: (context, state, child) => AppShell(child: child),
-      routes: [ /* bottom nav routes */ ],
+      routes: [
+        GoRoute(path: '/feed',     builder: (_, __) => const FeedScreen()),
+        GoRoute(path: '/explore',  builder: (_, __) => const ExploreScreen()),
+        GoRoute(path: '/inbox',    builder: (_, __) => const InboxScreen()),
+      ],
     ),
+
+    GoRoute(path: '/auth/login', builder: (_, __) => const LoginScreen()),
   ],
 );
 ```
 
-**Deep linking:** Add `GoRouter` handles it automatically on iOS (Universal Links) and Android (App Links) when configured in `AndroidManifest.xml` and `Info.plist`.
+---
+
+### 6.3 Navigation Methods
+
+The method you choose controls the back-stack behaviour — a common interview question.
+
+```dart
+// go — replaces the entire stack. Back button will NOT return to the previous screen.
+// Use for: post-login redirect to home, logout to login screen.
+context.go('/home');
+
+// push — adds to the stack. Back button returns to the previous screen.
+// Use for: detail screens, modals, sub-flows.
+context.push('/home/profile/123');
+
+// replace — swaps the current route without adding to history.
+// Use for: replacing the login screen with OTP screen mid-flow (no back).
+context.replace('/auth/otp');
+
+// pop — removes the current route from the stack.
+context.pop();
+
+// pop with result — return data to the caller
+context.pop(selectedItem);
+
+// pushReplacement via go — there is no separate pushReplacement in GoRouter;
+// use replace() for the same effect.
+```
+
+**Passing data:**
+
+```dart
+// Path parameters — in the URL, survives deep links
+context.push('/home/profile/123');
+// Read: state.pathParameters['userId']
+
+// Query parameters — in the URL, survives deep links
+context.push('/search?q=flutter&sort=recent');
+// Read: state.uri.queryParameters['q']
+
+// extra — not in URL, lost on deep link or page refresh
+context.push('/details', extra: myProduct);
+// Read: state.extra as Product
+// Use extra for ephemeral data (selected item); never rely on it for deep-linked screens
+```
 
 ---
 
-### 6.2 Navigation Patterns
+### 6.4 Deep Linking
 
-Understanding the distinction between navigation methods is a common interview question. The key difference: `go` replaces the entire navigation stack (the user cannot go back), while `push` adds to the stack (the back button remains). Use `go` for top-level route changes (e.g., post-login redirect), `push` for modal or detail screens, and `replace` when you want to swap the current route without adding to history.
+Deep links open the app at a specific screen from a URL — from a push notification, a web link, or the OS share sheet.
+
+**Android** — declare intent filters in `AndroidManifest.xml`:
+
+```xml
+<intent-filter android:autoVerify="true">
+  <action android:name="android.intent.action.VIEW" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <category android:name="android.intent.category.BROWSABLE" />
+  <data android:scheme="https" android:host="myapp.com" />
+</intent-filter>
+```
+
+**iOS** — add associated domains in `Info.plist` and entitlements:
+
+```xml
+<key>com.apple.developer.associated-domains</key>
+<array>
+  <string>applinks:myapp.com</string>
+</array>
+```
+
+GoRouter handles the incoming URL automatically — it matches against your declared routes and navigates to the correct screen. No manual parsing needed. If the URL has no matching route, use `errorBuilder` to show a 404 screen:
 
 ```dart
-// Push
-context.go('/home/profile/123');
+GoRouter(
+  errorBuilder: (context, state) => NotFoundScreen(path: state.matchedLocation),
+  routes: [ ... ],
+)
+```
 
-// Replace (no back button)
-context.replace('/login');
+---
 
-// Push on stack
-context.push('/modal');
+### 6.5 Auth Guard Pattern
 
-// Pass extra data (not in URL)
-context.push('/details', extra: myObject);
+The `redirect` callback is how GoRouter protects routes. It runs before every navigation event and can return a new path to redirect to, or `null` to allow the navigation.
 
-// Pop with result
-context.pop(result);
+Best practice: drive the redirect from a Riverpod provider so it reacts automatically when auth state changes (e.g. token expiry while the app is open):
+
+```dart
+final router = GoRouter(
+  refreshListenable: authNotifier, // re-evaluates redirect when this notifies
+  redirect: (context, state) {
+    final auth = ref.read(authProvider);
+
+    if (auth is AuthLoading) return null; // don't redirect while checking auth
+
+    final onPublicRoute = _publicRoutes.contains(state.matchedLocation);
+    if (auth is Unauthenticated && !onPublicRoute) return '/auth/login';
+    if (auth is Authenticated && onPublicRoute) return '/home';
+
+    return null;
+  },
+  routes: [ ... ],
+);
+```
+
+`refreshListenable` accepts a `Listenable` — wrap your Riverpod notifier or a `ChangeNotifier` that fires whenever auth state changes.
+
+---
+
+### 6.6 Nested Navigation with ShellRoute
+
+`ShellRoute` renders a persistent wrapper (bottom nav bar, drawer, side rail) and keeps it alive while the user navigates between its child routes. Each child route is displayed inside the `child` slot of the shell — the shell itself never rebuilds.
+
+```dart
+ShellRoute(
+  builder: (context, state, child) {
+    return Scaffold(
+      body: child,  // current child route renders here
+      bottomNavigationBar: BottomNavBar(
+        currentIndex: _indexForPath(state.matchedLocation),
+        onTap: (i) => context.go(_pathForIndex(i)),
+      ),
+    );
+  },
+  routes: [
+    GoRoute(path: '/feed',    builder: (_, __) => const FeedScreen()),
+    GoRoute(path: '/explore', builder: (_, __) => const ExploreScreen()),
+    GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
+  ],
+)
+```
+
+For **nested navigation within a tab** (each tab has its own back-stack), use `StatefulShellRoute.indexedStack` — each branch gets its own Navigator and preserves scroll position and state independently:
+
+```dart
+StatefulShellRoute.indexedStack(
+  builder: (context, state, navigationShell) {
+    return AppShell(navigationShell: navigationShell);
+  },
+  branches: [
+    StatefulShellBranch(routes: [GoRoute(path: '/feed', ...)]),
+    StatefulShellBranch(routes: [GoRoute(path: '/explore', ...)]),
+  ],
+)
 ```
 
 ---
@@ -1384,9 +1534,13 @@ context.pop(result);
 
 | Question | Answer |
 |----------|--------|
-| Navigator 1 vs 2? | 1 is imperative stack. 2 is declarative (pages list). GoRouter wraps 2 |
-| How to protect routes? | `redirect` callback in GoRouter; check auth state before allowing navigation |
-| How to handle nested navigation? | `ShellRoute` in GoRouter; each shell has its own Navigator |
+| Navigator 1 vs 2? | 1 is imperative (`push`/`pop`). 2 is declarative (pages list), enables deep linking and URL sync. GoRouter wraps Navigator 2 |
+| `go` vs `push` vs `replace`? | `go` replaces the whole stack (no back). `push` adds to the stack (back works). `replace` swaps the current route without adding history |
+| How do you protect routes? | `redirect` callback in GoRouter — return a new path to redirect, or `null` to allow |
+| How do you react to auth state changes? | `refreshListenable` on GoRouter — re-evaluates `redirect` whenever the listenable notifies |
+| How to pass data between routes? | Path params (in URL, deep-link safe), query params (in URL), or `extra` (not in URL, avoid for deep-linked screens) |
+| `ShellRoute` vs `StatefulShellRoute`? | `ShellRoute`: shared wrapper, single Navigator. `StatefulShellRoute.indexedStack`: each tab gets its own Navigator and preserves its state |
+| How does deep linking work in GoRouter? | GoRouter matches the incoming URL against declared routes and navigates automatically — no manual parsing |
 
 ---
 
