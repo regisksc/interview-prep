@@ -973,127 +973,294 @@ else
 
 ### 5.1 Future & async/await
 
-A `Future<T>` represents a value that will be available at some point in the future — Dart's equivalent of a Promise. `async/await` is syntactic sugar over Future chaining (`.then`/`.catchError`) that makes asynchronous code read like synchronous code. Because Dart is single-threaded, Futures don't run in parallel — they interleave on the event loop. To truly run things in parallel, combine multiple Futures with `.wait` or use isolates.
+A `Future<T>` represents a computation that will produce a value (or error) at some point. It has three states: uncompleted, completed with data, completed with error. `async/await` is syntactic sugar over `.then`/`.catchError` chaining — it makes async code read linearly, but the execution model is unchanged underneath.
+
+**Critical mental model:** Dart is single-threaded. `await` does not block the thread — it suspends the current function, returns control to the event loop, and resumes when the Future completes. This is why the UI stays responsive during `await`: other events (touches, renders) can run in between.
 
 ```dart
 Future<User> getUser(String id) async {
   final response = await http.get(Uri.parse('/users/$id'));
-  if (response.statusCode != 200) throw ServerException();
+  if (response.statusCode != 200) throw ServerException(response.statusCode);
   return User.fromJson(jsonDecode(response.body));
 }
 
-// Error handling
+// Typed error handling — catch specific exceptions before the general catch
 try {
   final user = await getUser('123');
-} on ServerException {
-  // handle
+} on ServerException catch (e) {
+  log('Server error: ${e.statusCode}');
+} on SocketException {
+  log('No internet');
 } catch (e, stackTrace) {
-  // unexpected error
-  debugPrint('$e\n$stackTrace');
+  // Unexpected — log fully
+  FirebaseCrashlytics.instance.recordError(e, stackTrace);
 }
+```
 
-// Parallel futures
+**Parallel execution** — `await` in sequence means each call waits for the previous to finish. Use records + `.wait` to run independent Futures concurrently:
+
+```dart
+// Sequential — total time = A + B
+final user   = await getUser(id);
+final config = await getAppConfig();
+
+// Parallel — total time = max(A, B)
 final (user, config) = await (getUser(id), getAppConfig()).wait;
+```
+
+**Completer** — manually control when a Future completes. Useful for bridging callback-based APIs into async/await:
+
+```dart
+Future<String> waitForBluetooth() {
+  final completer = Completer<String>();
+  bluetoothDevice.onConnect = (deviceId) => completer.complete(deviceId);
+  bluetoothDevice.onError   = (e)        => completer.completeError(e);
+  return completer.future;
+}
+```
+
+**`unawaited`** — explicitly fire-and-forget a Future. Without it, Dart tools warn you about unawaited Futures (which silently swallow errors):
+
+```dart
+unawaited(analyticsService.logEvent('screen_view')); // intentional, no need to await
 ```
 
 ---
 
 ### 5.2 Streams
 
-A `Stream<T>` is an asynchronous sequence of events — think of it as an async `Iterable`. Unlike a `Future` (one value, then done), a Stream can deliver zero, one, or many values over time. Common real-world streams: Firebase auth state changes, Bluetooth device events, WebSocket messages, or location updates.
+A `Stream<T>` is an asynchronous sequence of values — like an async `Iterable`. A `Future` gives you one value and completes; a Stream gives you zero, one, or many values over time and may or may not terminate. Real-world examples: Firebase auth state, WebSocket messages, location updates, file reads.
 
-**Single-subscription streams** can only have one listener at a time and buffer events until that listener is attached — suited for one-off operations like reading a file. **Broadcast streams** support multiple simultaneous listeners and don't buffer — suited for event buses and state changes.
+**Single-subscription vs Broadcast:**
+
+| | Single-subscription | Broadcast |
+|---|---|---|
+| Listeners | One at a time | Many simultaneously |
+| Buffering | Buffers until listener attaches | No buffering — late listeners miss past events |
+| Use for | File reads, HTTP response body | Auth state, event buses, sensor data |
 
 ```dart
-// Single subscription (default) — like a pipe
-final stream = Stream<int>.periodic(
-  const Duration(seconds: 1),
-  (count) => count,
-).take(5);
+// Single-subscription — only one listener allowed
+final fileStream = File('data.csv').openRead();
 
-// Broadcast stream — multiple listeners
-final controller = StreamController<AuthState>.broadcast();
-controller.add(AuthState.authenticated);
+// Broadcast — multiple widgets can listen simultaneously
+final authController = StreamController<AuthState>.broadcast();
+authController.add(AuthState.authenticated);
+authController.stream.listen((s) => debugPrint('Widget A: $s'));
+authController.stream.listen((s) => debugPrint('Widget B: $s'));
+```
 
-// Transform
-stream
-  .where((n) => n.isEven)
-  .map((n) => 'Even: $n')
-  .listen(debugPrint);
+**Stream operators** — composable, chainable transformations:
 
-// async* generator
+```dart
+Stream.fromIterable([1, 2, 3, 4, 5, 6])
+  .where((n) => n.isEven)   // filter: 2, 4, 6
+  .map((n) => n * 10)       // transform: 20, 40, 60
+  .take(2)                  // limit: 20, 40
+  .listen(print);
+```
+
+**`async*` generator** — produce a stream lazily with `yield`. Each `yield` emits one value; `yield*` delegates to another stream or iterable:
+
+```dart
 Stream<int> countdown(int from) async* {
   for (var i = from; i >= 0; i--) {
-    yield i;
-    await Future.delayed(const Duration(seconds: 1));
+    yield i;                                          // emit one value
+    await Future.delayed(const Duration(seconds: 1)); // pause between emissions
+  }
+}
+
+// yield* — emit everything from another stream/iterable
+Stream<int> merged(Stream<int> a, Stream<int> b) async* {
+  yield* a; // all of a, then all of b
+  yield* b;
+}
+```
+
+**Managing subscriptions manually** — if you call `stream.listen()` outside a `StreamBuilder`, you must cancel it or you leak it:
+
+```dart
+class _MyWidgetState extends State<MyWidget> {
+  late final StreamSubscription<AuthState> _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = authRepo.authStateChanges.listen((state) {
+      if (state is Unauthenticated) context.go('/login');
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel(); // ALWAYS cancel or you leak the listener
+    super.dispose();
   }
 }
 ```
 
-**StreamBuilder in Flutter** subscribes to a stream when the widget is inserted and automatically unsubscribes when it is removed — you don't manage the subscription lifecycle manually. Each new event triggers a rebuild with an updated `AsyncSnapshot`:
+**`StreamBuilder`** handles the subscription lifecycle automatically — subscribes on insert, cancels on remove, rebuilds on every event:
 
 ```dart
 StreamBuilder<User?>(
   stream: authRepository.authStateChanges,
   builder: (context, snapshot) {
-    if (snapshot.connectionState == ConnectionState.waiting) {
-      return const SplashScreen();
-    }
-    if (snapshot.hasData) return const HomeScreen();
-    return const LoginScreen();
+    return switch (snapshot.connectionState) {
+      ConnectionState.waiting => const SplashScreen(),
+      ConnectionState.active  => snapshot.hasData
+          ? HomeScreen(user: snapshot.data!)
+          : const LoginScreen(),
+      _                       => const LoginScreen(),
+    };
   },
 )
 ```
+
+**`StreamController` pitfalls:**
+- Forgetting `close()` leaks the controller
+- Adding to a closed controller throws a `StateError`
+- Adding a second listener to a single-subscription stream throws — use `.broadcast()` if you need multiple listeners
 
 ---
 
 ### 5.3 Isolates
 
-Dart is single-threaded (one event loop). Isolates are true threads with separate heaps.
+Dart runs on a single thread — every widget build, animation frame, gesture, and async callback runs on that same thread. If you do heavy CPU work on the main thread, you block the event loop: Flutter can't produce frames while it's blocked → jank.
+
+**Isolates are true parallel threads** with completely separate memory heaps. They don't share objects — they communicate by passing messages through `SendPort`/`ReceivePort`. Messages are copied (primitives, standard types) or transferred with zero-copy (via `TransferableTypedData`).
+
+**`Isolate.run`** — the simplest API (Dart 2.19+). Spawns an isolate, runs the closure, returns the result, exits:
 
 ```dart
-// Simple offload with compute()
-final parsed = await compute(parseHeavyJson, rawJsonString);
-
-List<Item> parseHeavyJson(String json) {
-  // runs in a separate isolate
-  return (jsonDecode(json) as List).map(Item.fromJson).toList();
-}
-
-// Long-running isolate with bidirectional communication
-final receivePort = ReceivePort();
-await Isolate.spawn(heavyTask, receivePort.sendPort);
-
-receivePort.listen((message) {
-  debugPrint('Got: $message');
+// UI stays responsive — heavy work runs in parallel
+final items = await Isolate.run(() {
+  final raw = jsonDecode(heavyJsonString) as List;
+  return raw.map(Item.fromJson).toList();
 });
 ```
 
+**`compute`** — Flutter's thin wrapper around `Isolate.run`. Only accepts top-level or static functions with a single argument:
+
+```dart
+final items = await compute(parseHeavyJson, rawJsonString);
+
+// Must be top-level or static — closures capturing outer context don't work
+List<Item> parseHeavyJson(String json) =>
+    (jsonDecode(json) as List).map(Item.fromJson).toList();
+```
+
+**Long-running isolate with bidirectional communication** — when you need an isolate that stays alive and processes multiple requests (e.g. background image processing, ongoing ML inference):
+
+```dart
+void main() async {
+  final receivePort = ReceivePort();
+  await Isolate.spawn(_workerIsolate, receivePort.sendPort);
+
+  final sendPort = await receivePort.first as SendPort;
+
+  final responsePort = ReceivePort();
+  sendPort.send(['process', largeData, responsePort.sendPort]);
+  final result = await responsePort.first;
+}
+
+void _workerIsolate(SendPort mainSendPort) {
+  final port = ReceivePort();
+  mainSendPort.send(port.sendPort); // hand back our SendPort
+
+  port.listen((message) {
+    final [task, data, SendPort replyTo] = message as List;
+    replyTo.send(_heavyProcess(data));
+  });
+}
+```
+
+**`TransferableTypedData`** — for large binary buffers (image pixels, audio samples), copying is expensive. This transfers the underlying memory with zero copy — the sender loses access immediately:
+
+```dart
+final transferable = TransferableTypedData.fromList([imageBytes]);
+sendPort.send(transferable); // zero-copy — imageBytes is invalid here after this
+```
+
 **When to use isolates:**
-- JSON parsing of large payloads
-- Image processing
-- Encryption/decryption
-- Complex algorithms over big datasets
+
+| Scenario | Approach |
+|---|---|
+| One-off JSON parsing > ~1 MB | `Isolate.run` or `compute` |
+| Image decoding / pixel manipulation | `Isolate.run` |
+| Encryption / hashing | `Isolate.run` |
+| Ongoing background work (audio, ML) | Long-lived isolate with ports |
+| Network calls, DB queries | Plain `async/await` — already non-blocking, no isolate needed |
+
+> Common mistake: using isolates for I/O. Network and disk I/O are already async and non-blocking — the OS handles them. `await` is sufficient. Isolates only help with CPU-bound work.
 
 ---
 
 ### 5.4 Event Loop
 
+Understanding the event loop is the foundation for explaining why `await` doesn't block the UI, what order callbacks run in, and why `Future.microtask` behaves differently from `Future`.
+
 ```
 Main Isolate
-  ├── MicroTask Queue (highest priority — Future completions)
-  └── Event Queue (lower priority — I/O, timers, user input)
+  ├── Microtask Queue  (highest priority)
+  │     └── Future.microtask, scheduleMicrotask, .then/.whenComplete callbacks
+  └── Event Queue  (lower priority)
+        └── Timer, I/O callbacks, user input, platform messages, new Futures
 ```
+
+**Execution order:**
+1. Run all synchronous code until the call stack is empty
+2. Drain the entire microtask queue (every pending microtask runs before moving on)
+3. Take one event from the event queue and run its callback
+4. Repeat from step 2
 
 ```dart
 void main() {
-  debugPrint('1');
-  Future(() => debugPrint('3')); // event queue
-  Future.microtask(() => debugPrint('2')); // microtask queue
-  debugPrint('4');
+  print('1'); // sync — runs immediately, call stack not empty yet
+
+  Future(() => print('5'));
+  // Schedules a new event in the event queue — will run after sync code
+  // and after ALL microtasks are drained
+
+  Future.microtask(() => print('3'));
+  // Schedules in the microtask queue — higher priority than event queue,
+  // runs before any event queue callbacks
+
+  scheduleMicrotask(() => print('4'));
+  // Also microtask queue — queued after the Future.microtask above,
+  // so it runs second among microtasks
+
+  print('2'); // sync — still in the synchronous block, runs before any async callbacks
 }
-// Output: 1, 4, 2, 3
+// Output: 1, 2, 3, 4, 5
+//
+// Step-by-step:
+//   print('1')              → sync, runs now
+//   Future(...)             → enqueues a callback in the event queue
+//   Future.microtask(...)   → enqueues a callback in the microtask queue
+//   scheduleMicrotask(...)  → enqueues a second callback in the microtask queue
+//   print('2')              → sync, still in main(), runs now
+//   --- call stack empty ---
+//   Drain microtask queue:
+//     print('3')            → first microtask
+//     print('4')            → second microtask
+//   Microtask queue empty — take next event:
+//     print('5')            → event queue callback runs last
 ```
+
+**Why this matters in practice:**
+
+```dart
+// A tight loop blocks the event loop entirely — no frames, no touches
+for (var i = 0; i < 1_000_000; i++) { heavyCompute(i); }
+
+// Yielding to the event queue each iteration lets renders happen between steps
+// — but it's slow; use an isolate for truly heavy CPU work
+for (var i = 0; i < 1000; i++) {
+  await Future(() => heavyCompute(i)); // each iteration goes through the event queue
+}
+```
+
+**Microtask starvation** — microtasks have higher priority than events. If a microtask schedules another microtask, and that one schedules another, the event queue never runs — the UI freezes. Never use `scheduleMicrotask` for work that should yield to rendering.
 
 ---
 
@@ -1101,10 +1268,16 @@ void main() {
 
 | Question | Answer |
 |----------|--------|
-| `async` vs `async*`? | `async` returns a Future; `async*` returns a Stream |
-| `yield` vs `yield*`? | `yield` emits one value; `yield*` delegates to another stream/iterable |
-| Can two isolates share memory? | No. They communicate only via messages (SendPort/ReceivePort) |
-| What is `unawaited`? | Utility to explicitly fire-and-forget a Future without warning |
+| `async` vs `async*`? | `async` returns a `Future`; `async*` returns a `Stream` |
+| `yield` vs `yield*`? | `yield` emits one value; `yield*` delegates to another stream or iterable, emitting all its values |
+| Does `await` block the thread? | No — it suspends the current function and returns control to the event loop |
+| Can two isolates share memory? | No — separate heaps; communicate only via message passing (SendPort/ReceivePort) |
+| `Isolate.run` vs `compute`? | `Isolate.run` accepts any closure; `compute` only accepts top-level/static functions with a single argument |
+| Single-subscription vs broadcast stream? | Single: one listener, buffers events. Broadcast: many listeners, no buffering — late listeners miss past events |
+| What is `unawaited`? | Marks a Future as intentionally fire-and-forget — suppresses the unawaited-future lint warning |
+| What fills the microtask queue? | `.then`/`.whenComplete` callbacks and explicit `Future.microtask`/`scheduleMicrotask` calls |
+| When would you use a `Completer`? | To wrap a callback-based API into a Future — complete it manually when the callback fires |
+| Why avoid isolates for I/O? | I/O is handled by the OS asynchronously — `await` is enough. Isolates only help with CPU-bound work |
 
 ---
 
