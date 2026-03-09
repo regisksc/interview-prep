@@ -1174,12 +1174,26 @@ void _workerIsolate(SendPort mainSendPort) {
 }
 ```
 
-**`TransferableTypedData`** — for large binary buffers (image pixels, audio samples), copying is expensive. This transfers the underlying memory with zero copy — the sender loses access immediately:
+**`TransferableTypedData`** — normally, sending a message between isolates **copies** the data. For a 10 MB image buffer, that means 10 MB gets duplicated in memory during the transfer. `TransferableTypedData` avoids the copy by transferring **ownership** of the underlying memory buffer instead: the receiving isolate gets it, the sending isolate's reference becomes invalid. Think of it as moving a file rather than duplicating it.
 
 ```dart
+// Without TransferableTypedData: imageBytes is COPIED — both isolates
+// briefly hold the full buffer in memory simultaneously
+sendPort.send(imageBytes);
+
+// With TransferableTypedData: ownership is MOVED — no duplication at all
 final transferable = TransferableTypedData.fromList([imageBytes]);
-sendPort.send(transferable); // zero-copy — imageBytes is invalid here after this
+sendPort.send(transferable);
+// imageBytes is now invalid — accessing it after this point throws
+
+// Receiving isolate: materialise back into a typed list
+port.listen((message) {
+  final bytes = (message as TransferableTypedData).materialize().asUint8List();
+  // bytes points to the original buffer — no copy happened
+});
 ```
+
+Use it when passing large `Uint8List` buffers (camera frames, audio samples, decoded images) to a worker isolate and you don't need the original anymore.
 
 **When to use isolates:**
 
