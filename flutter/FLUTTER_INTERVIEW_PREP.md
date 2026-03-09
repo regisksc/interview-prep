@@ -592,16 +592,36 @@ ref.listen(authProvider, (prev, next) {
 
 **Modifiers:**
 
+**`family`** — by default a provider is a singleton. `family` turns it into a function: each unique argument gets its own cached instance. Think of it as a `Map<Arg, Provider>` managed automatically.
+
 ```dart
-// family — parameterised provider. Each unique argument gets its own instance.
+// Without family: one provider, one instance for the whole app.
+// With family: one instance per id — each cached separately.
 final userByIdProvider = FutureProvider.family<User, String>((ref, id) {
   return ref.read(repoProvider).getUser(id);
 });
-ref.watch(userByIdProvider('abc-123'));
 
-// autoDispose — provider is destroyed when no widget watches it anymore.
-// Combine with family for per-route data that cleans itself up.
+ref.watch(userByIdProvider('abc-123')); // own instance, cached
+ref.watch(userByIdProvider('xyz-456')); // different instance, cached separately
+```
+
+**`autoDispose`** — normally a provider lives forever once created, even if nothing watches it. `autoDispose` destroys the provider (and its state) the moment the last watcher unmounts.
+
+```dart
+// Without autoDispose: every search string ever created stays in memory forever.
+// With autoDispose: instance is disposed when you leave the screen.
 final searchProvider = StateProvider.autoDispose<String>((ref) => '');
+```
+
+**Combining both** — the most common pattern for per-route data:
+
+```dart
+// Each route gets its own instance (family).
+// When you navigate away, that instance cleans itself up (autoDispose).
+// Navigate back → fresh fetch, no stale data.
+final userByIdProvider = FutureProvider.autoDispose.family<User, String>((ref, id) {
+  return ref.read(repoProvider).getUser(id);
+});
 ```
 
 ---
