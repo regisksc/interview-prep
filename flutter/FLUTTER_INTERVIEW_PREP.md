@@ -735,7 +735,7 @@ BlocListener<AuthBloc, AuthState>(
 | What is `ChangeNotifier`? | Base class that notifies listeners on `notifyListeners()`. Foundation of Provider; Riverpod's `Notifier` replaces it |
 | Provider vs Riverpod? | Riverpod: no context in logic, compile-safe, `AsyncValue` built-in, `ProviderContainer` for tests, better scoping |
 | Cubit vs Bloc? | Cubit: direct method calls, simpler. Bloc: event objects, fully serialisable state machine, better for audit trails |
-| Can Bloc replace Riverpod? | For state yes, but not for DI — you'd still need get_it. Riverpod does both. They can coexist |
+| Can Bloc replace Riverpod? | For state yes, but not for DI — Bloc has `BlocProvider` but it only injects Blocs into the widget tree; repositories, services, and other dependencies still need `get_it`. Riverpod covers both with the same system. They can coexist |
 | What is `BlocBuilder` vs `BlocListener`? | Builder: rebuilds UI on state change. Listener: one-time side effects only (navigation, snackbars) |
 | What is `ref.watch` vs `ref.read`? | `watch`: subscribes, widget rebuilds on change — use in `build()`. `read`: one-shot, no subscription — use in callbacks |
 
