@@ -820,10 +820,36 @@ class AuthRepositoryImpl implements AuthRepository {
 
 ### 4.3 Dependency Injection
 
-Dependency Injection (DI) is the practice of providing a class's dependencies from outside rather than letting it create them internally. This decouples components: a `LoginScreen` doesn't know whether it's talking to a real HTTP server or a fake in-memory one — it just receives whatever satisfies the `AuthRepository` interface. In Flutter, the two common approaches are `get_it` (a service locator) and Riverpod (where providers double as a DI container).
+Dependency Injection (DI) is the practice of providing a class's dependencies from outside rather than letting it create them internally. Without DI, a `LoginViewModel` that creates its own `AuthRepository` is tightly coupled to the concrete implementation — you can't swap it for a fake in tests without modifying the class. With DI, the class declares what it needs (via constructor or interface), and something external wires the real or fake implementation in.
+
+**Why it matters:**
+- **Testability** — swap real HTTP clients for in-memory fakes without changing business logic
+- **Replaceability** — change `FirebaseAuthRepository` to `SupabaseAuthRepository` in one place
+- **Separation of concerns** — classes don't know how their dependencies are constructed
+
+**Service locator vs true DI:**
+
+A service locator (`get_it`) is a global registry — classes pull their dependencies out of it. It works but it's technically an inversion of control, not strict DI (dependencies aren't pushed in via constructor). True constructor injection makes dependencies explicit and visible in the class signature.
 
 ```dart
-// get_it + injectable
+// Bad — hard-coded dependency, untestable
+class LoginViewModel {
+  final _repo = AuthRepositoryImpl(Dio()); // tightly coupled
+}
+
+// Good — dependency injected via constructor
+class LoginViewModel {
+  LoginViewModel(this._repo);
+  final AuthRepository _repo; // depends on abstraction, not implementation
+}
+```
+
+**Approach 1: `get_it` + `injectable`**
+
+`get_it` is a service locator. `injectable` adds code generation to eliminate manual registration boilerplate. Annotate classes, run `build_runner`, call `configureDependencies()` at startup.
+
+```dart
+// Annotate your module and classes
 @module
 abstract class NetworkModule {
   @singleton
@@ -832,18 +858,82 @@ abstract class NetworkModule {
 
 @singleton
 class AuthRepositoryImpl implements AuthRepository {
-  AuthRepositoryImpl(this._remote, this._local);
-  // ...
+  AuthRepositoryImpl(this._dio);  // get_it resolves Dio automatically
+  final Dio _dio;
 }
 
-// Register
-configureDependencies();
+// main.dart — one-time setup
+await configureDependencies();
 
-// Resolve
+// Anywhere in the app — pull from the registry
 final repo = getIt<AuthRepository>();
 ```
 
-With Riverpod: providers ARE your DI container. No separate setup needed.
+Scopes:
+- `@singleton` — one instance for the app lifetime
+- `@lazySingleton` — created on first access, not at startup
+- `@injectable` — new instance every time it's resolved
+
+**Approach 2: Riverpod as DI**
+
+With Riverpod, providers ARE the DI container. No separate setup, no global registry to configure. The dependency graph is expressed as provider references — Riverpod resolves and caches them automatically.
+
+```dart
+// Infrastructure layer
+final dioProvider = Provider<Dio>((ref) => Dio(BaseOptions(baseUrl: Env.apiUrl)));
+
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepositoryImpl(ref.read(dioProvider)); // Riverpod wires the graph
+});
+
+// Feature layer — no knowledge of how AuthRepository is built
+final loginProvider = NotifierProvider<LoginNotifier, LoginState>(LoginNotifier.new);
+
+class LoginNotifier extends Notifier<LoginState> {
+  @override
+  LoginState build() => LoginInitial();
+
+  Future<void> login(String email, String password) async {
+    final repo = ref.read(authRepositoryProvider); // resolved from graph
+    // ...
+  }
+}
+```
+
+**Testing with Riverpod** — override any provider in the graph without touching the class:
+
+```dart
+final container = ProviderContainer(
+  overrides: [
+    authRepositoryProvider.overrideWithValue(FakeAuthRepository()),
+  ],
+);
+final notifier = container.read(loginProvider.notifier);
+await notifier.login('a@b.com', '123');
+```
+
+**Approach 3: `get_it` + Riverpod together**
+
+Common in large codebases migrating incrementally. `get_it` handles infrastructure (Dio, SharedPreferences, third-party SDKs). Riverpod handles feature-level state and business logic. A thin bridge connects them:
+
+```dart
+final authRepositoryProvider = Provider<AuthRepository>(
+  (_) => getIt<AuthRepository>(), // bridge: pull from get_it into Riverpod
+);
+```
+
+**Comparison:**
+
+| | `get_it` | Riverpod |
+|---|---|---|
+| Setup | `configureDependencies()` at startup | Zero setup — providers are top-level constants |
+| Resolving | `getIt<T>()` anywhere | `ref.read(provider)` — only where `ref` is available |
+| Test overrides | `getIt.unregister` + re-register | `ProviderContainer(overrides: [...])` — clean and scoped |
+| Lazy loading | `@lazySingleton` | `autoDispose` |
+| Scoping | Named scopes (manual) | `autoDispose` + `family` |
+| Async init | `getIt.isReady<T>()` | `FutureProvider` |
+
+In greenfield Flutter projects, Riverpod alone is sufficient. `get_it` is worth adding when you have platform-channel dependencies that must be initialised before `runApp` (e.g. `FlutterLocalNotificationsPlugin`), or when integrating with non-Flutter Dart packages that have no `ref` access.
 
 ---
 
