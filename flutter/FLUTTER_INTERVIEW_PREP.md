@@ -1008,14 +1008,34 @@ final config = await getAppConfig();
 final (user, config) = await (getUser(id), getAppConfig()).wait;
 ```
 
-**Completer** — manually control when a Future completes. Useful for bridging callback-based APIs into async/await:
+**Completer** — a `Future` is normally produced by an `async` function: you `return` a value and Dart completes the Future for you. But some APIs are callback-based — they don't return anything, they just call a function when done. `Completer` is the bridge: it gives you a `Future` you can hand to callers, and a handle (`completer`) you keep privately to resolve that Future whenever the callback fires.
+
+Think of it as a promise you write yourself: you hand out `completer.future` to whoever is waiting, and you decide later — from anywhere — when to deliver the value with `completer.complete(value)` or the error with `completer.completeError(e)`.
 
 ```dart
+// Without Completer — callback-based, can't be awaited
+bluetoothDevice.connect(
+  onConnect: (id) => print('connected: $id'),  // caller can't await this
+  onError:   (e)  => print('failed: $e'),
+);
+
+// With Completer — wraps the callback API so it can be awaited normally
 Future<String> waitForBluetooth() {
   final completer = Completer<String>();
-  bluetoothDevice.onConnect = (deviceId) => completer.complete(deviceId);
-  bluetoothDevice.onError   = (e)        => completer.completeError(e);
-  return completer.future;
+
+  bluetoothDevice.connect(
+    onConnect: (id) => completer.complete(id),     // resolves the Future
+    onError:   (e)  => completer.completeError(e), // fails the Future
+  );
+
+  return completer.future; // caller awaits this
+}
+
+// Now the caller can use it like any async function
+try {
+  final deviceId = await waitForBluetooth();
+} catch (e) {
+  // handle connection failure
 }
 ```
 
@@ -1290,7 +1310,7 @@ for (var i = 0; i < 1000; i++) {
 | Single-subscription vs broadcast stream? | Single: one listener, buffers events. Broadcast: many listeners, no buffering — late listeners miss past events |
 | What is `unawaited`? | Marks a Future as intentionally fire-and-forget — suppresses the unawaited-future lint warning |
 | What fills the microtask queue? | `.then`/`.whenComplete` callbacks and explicit `Future.microtask`/`scheduleMicrotask` calls |
-| When would you use a `Completer`? | To wrap a callback-based API into a Future — complete it manually when the callback fires |
+| When would you use a `Completer`? | When an API is callback-based and can't be awaited — `Completer` gives you a `Future` to return to callers and a handle to resolve it when the callback fires |
 | Why avoid isolates for I/O? | I/O is handled by the OS asynchronously — `await` is enough. Isolates only help with CPU-bound work |
 
 ---
