@@ -1364,96 +1364,277 @@ context.pop(result);
 
 ### 7.1 Avoiding Unnecessary Rebuilds
 
+Flutter rebuilds a widget when its parent rebuilds and passes different arguments — or when `setState`, a `ChangeNotifier`, or a Riverpod provider it watches changes. The rebuild itself is cheap; the problem is when it causes heavy layout/paint work or propagates unnecessarily far down the tree.
+
+**`const` constructors** — Flutter short-circuits the rebuild entirely for `const` widgets. The element is preserved and `build()` is never called again. This is the single highest-return optimization.
+
 ```dart
-// BAD: new instance every build
+// BAD: new closure instance every build → Flutter sees a new widget → rebuilds child
 Widget build(BuildContext context) {
-  return MyWidget(callback: () => doSomething()); // new closure each build
+  return MyButton(onTap: () => doSomething()); // new lambda each time
 }
 
-// GOOD: extract to method or use const
+// GOOD: const — widget is identical every build, no rebuild ever
 Widget build(BuildContext context) {
-  return const MyWidget(); // const: never rebuilt
+  return const MyButton(); // Flutter reuses the element
 }
 
-// GOOD: use callbacks stored in state
-class _State extends State<MyWidget> {
+// GOOD: store callbacks in state so the reference is stable
+class _MyState extends State<MyWidget> {
   late final VoidCallback _onTap = () => doSomething();
 
   @override
   Widget build(BuildContext context) {
-    return MyWidget(callback: _onTap);
+    return MyButton(onTap: _onTap); // same reference, no unnecessary rebuild
   }
 }
 ```
 
-**Riverpod — select to limit rebuilds:**
+**Split large `build` methods** — a single `build()` that returns 200 lines of widget tree means the whole tree rebuilds whenever any dependency changes. Extract subtrees into separate `StatelessWidget` or `ConsumerWidget` classes — Flutter then only rebuilds the subtree that actually depends on changed state.
+
+**Riverpod `select`** — watch only the field you need, not the whole object:
+
 ```dart
-// Rebuilds only when name changes, not the whole User object
+// Rebuilds whenever the entire User object changes (any field)
+final user = ref.watch(userProvider);
+
+// Rebuilds only when user.name changes — other field changes are ignored
 final name = ref.watch(userProvider.select((u) => u.name));
+```
+
+**`ValueListenableBuilder`** — rebuilds only its own subtree, not the parent:
+
+```dart
+ValueListenableBuilder<int>(
+  valueListenable: _counter,   // ValueNotifier<int>
+  builder: (context, value, child) {
+    return Text('$value');     // only this Text rebuilds on change
+  },
+)
+```
+
+**`AnimatedBuilder`** — the canonical way to limit animation rebuilds to the animated subtree. Pass a static `child` for the parts that don't animate:
+
+```dart
+AnimatedBuilder(
+  animation: _animationController,
+  child: const HeavyStaticWidget(), // built once, passed through
+  builder: (context, child) {
+    return Transform.scale(
+      scale: _animation.value,
+      child: child,           // reuses the pre-built static widget
+    );
+  },
+)
 ```
 
 ---
 
 ### 7.2 List Performance
 
-`ListView` without a builder instantiates every child widget upfront, even those off-screen — fine for 5 items, catastrophic for 500. `ListView.builder` renders only the items currently visible (plus a small cache margin), making scroll performance O(visible items) instead of O(total items). When all items have the same height, providing `itemExtent` gives Flutter an additional win: it can calculate each item's position mathematically and skip the per-item layout pass entirely.
+`ListView` without a builder creates all child widgets immediately, including those far off-screen. For any list longer than ~20 items, use `ListView.builder` — it creates only the items currently in the viewport plus a small cache zone.
 
 ```dart
-// BAD: builds all items upfront
+// BAD — builds everything upfront, O(n) memory regardless of scroll position
 ListView(children: items.map((i) => ItemCard(i)).toList())
 
-// GOOD: builds lazily as user scrolls
+// GOOD — lazily builds as user scrolls, O(visible) memory
 ListView.builder(
   itemCount: items.length,
   itemBuilder: (context, index) => ItemCard(items[index]),
 )
 
-// For dynamic sizes: ListView.builder is fine
-// For known equal heights: ListView + itemExtent (faster layout)
+// itemExtent — when items have equal height, Flutter skips per-item layout math
+// and calculates positions directly. Significant speedup for long lists.
 ListView.builder(
-  itemExtent: 72,
+  itemExtent: 72.0,
   itemCount: items.length,
   itemBuilder: (_, i) => ItemTile(items[i]),
 )
+
+// ListView.separated — adds dividers without wrapping each item
+ListView.separated(
+  itemCount: items.length,
+  separatorBuilder: (_, __) => const Divider(),
+  itemBuilder: (_, i) => ItemTile(items[i]),
+)
+```
+
+**Slivers** — the low-level primitive behind all scrollable widgets. Use `CustomScrollView` when you need to mix a pinned header, a grid, and a list in a single scroll:
+
+```dart
+CustomScrollView(
+  slivers: [
+    const SliverAppBar(pinned: true, title: Text('Feed')),
+    SliverGrid(
+      delegate: SliverChildBuilderDelegate(
+        (_, i) => GridTile(item: featured[i]),
+        childCount: featured.length,
+      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2),
+    ),
+    SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (_, i) => ItemTile(items[i]),
+        childCount: items.length,
+      ),
+    ),
+  ],
+)
+```
+
+**`SliverPrototypeExtentList`** — like `itemExtent` but measures extent from a prototype widget instead of a hardcoded number. Useful when you can't hardcode the height but it's uniform:
+
+```dart
+SliverPrototypeExtentList(
+  prototypeItem: const ItemTile(item: Item.empty()), // measured once
+  delegate: SliverChildBuilderDelegate(
+    (_, i) => ItemTile(item: items[i]),
+    childCount: items.length,
+  ),
+)
+```
+
+**`keepAlive`** — by default, scrolled-off pages in a `PageView` or `TabBarView` are destroyed. Mark a state with `AutomaticKeepAliveClientMixin` to preserve it:
+
+```dart
+class _FeedState extends State<FeedScreen> with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context); // required
+    return ListView.builder(/* ... */);
+  }
+}
 ```
 
 ---
 
 ### 7.3 RepaintBoundary
 
-Isolates a subtree from repaints caused by ancestors:
+Every widget that changes state potentially triggers a repaint up the render tree. `RepaintBoundary` creates a new compositing layer — its subtree repaints independently of its ancestors and siblings.
+
+Use it when:
+- A subtree animates continuously (e.g. a ticker, a particle effect) and the rest of the screen is static
+- A subtree changes frequently while expensive ancestors remain stable
+
+Avoid overuse — each boundary creates an additional GPU layer. Too many layers (>10–15 on most devices) causes raster thread pressure and can *hurt* performance more than it helps. Profile before adding.
 
 ```dart
+// Without RepaintBoundary: every animation frame repaints the entire screen
+// With RepaintBoundary: only the AnimatedCounter layer is repainted
 RepaintBoundary(
-  child: AnimatedCounter(), // only this repaints on animation, not the whole screen
+  child: AnimatedCounter(value: _count),
+)
+
+// Complex particle effect on a static screen — isolate it
+RepaintBoundary(
+  child: ParticleField(),
 )
 ```
+
+**How to check if boundaries are helping:** in DevTools → Performance → Timeline, look at "Raster" frame times. Enable "Show repaint rainbow" in the Flutter inspector — areas that repaint show a cycling color border. If the entire screen is cycling, you likely need a boundary somewhere.
 
 ---
 
 ### 7.4 Image Optimization
 
+Images are one of the most common sources of memory pressure and jank in Flutter apps.
+
 ```dart
-// Resize images to display size — avoid loading 4K images for 50x50 thumbnails
+// Decode at display size, not full resolution
+// A 4K image decoded at full res for a 50x50 avatar wastes ~50MB of texture memory
 Image.network(
   url,
   width: 50,
   height: 50,
-  cacheWidth: 100,  // decode at 2x for retina, not full resolution
+  cacheWidth: 100,   // decode at 2× display size for retina; the image cache stores this smaller version
   cacheHeight: 100,
 )
 
-// Use cached_network_image for disk + memory cache
-CachedNetworkImage(imageUrl: url)
+// cached_network_image — memory + disk cache, placeholder and error widgets
+CachedNetworkImage(
+  imageUrl: url,
+  placeholder: (_, __) => const CircularProgressIndicator(),
+  errorWidget: (_, __, ___) => const Icon(Icons.broken_image),
+  memCacheWidth: 100,
+)
+
+// Preload images before the screen opens — eliminates the loading flash
+await precacheImage(NetworkImage(url), context);
 ```
+
+**`ResizeImage`** — explicitly decode at a smaller resolution directly from the image provider, useful when you control the provider:
+
+```dart
+Image(
+  image: ResizeImage(
+    NetworkImage(url),
+    width: 100,
+    height: 100,
+  ),
+)
+```
+
+**Format and compression:**
+- Prefer WebP over PNG/JPEG for assets — smaller file, lossless or lossy
+- Use SVG (via `flutter_svg`) for icons and illustrations — resolution-independent, no memory scaling cost
+- For local assets, declare `2.0x` / `3.0x` variants so Flutter picks the right resolution per device
 
 ---
 
 ### 7.5 DevTools Profiling
 
-- **Widget Inspector**: find unnecessary rebuilds (check "Track widget build counts")
-- **Performance overlay**: two graphs — UI thread (Dart) and Raster thread (GPU). Both should stay below 16ms for 60fps.
-- **Timeline**: find jank, identify slow frames
+Flutter DevTools is the primary tool for diagnosing performance issues. Run with `flutter run --profile` (not debug — debug mode disables optimisations and is not representative).
+
+**Performance overlay** — two bars in the top-right corner:
+- Upper bar: UI thread (Dart). If this exceeds 16ms, your Dart code is the bottleneck.
+- Lower bar: Raster thread (GPU/compositor). If this exceeds 16ms, you have compositing issues (too many layers, complex shaders).
+- Green = fine. Yellow = approaching budget. Red = janky frame.
+
+**Widget Inspector → Track rebuilds** — shows a rebuild counter per widget. Any counter that climbs rapidly while scrolling or animating is a rebuild optimisation target.
+
+**CPU profiler** — flame chart of Dart call stacks sampled during a recording. Look for wide blocks (long time spent) in your own code vs framework code. Good for finding synchronous work that should be in an isolate.
+
+**Memory tab** — shows heap usage over time. A continuously rising heap with no drops = memory leak. Common causes: stream subscriptions never cancelled, image cache not bounded, listeners not removed in `dispose`.
+
+**Timeline events** — individual frame breakdown. Each frame shows: Animate → Build → Layout → Paint → Composite. If "Build" is wide, you have rebuild issues. If "Paint" is wide, you have RepaintBoundary or overdraw issues.
+
+**Enabling additional diagnostics in code:**
+
+```dart
+// In main() or a debug flag — logs every widget build to the console
+debugProfileBuildsEnabled = true;
+
+// Highlights overdraw (painting the same pixel multiple times)
+debugRepaintRainbowEnabled = true;
+
+// Logs every layout pass
+debugPrintLayouts = true;
+```
+
+---
+
+### 7.6 Shader Compilation Jank
+
+On first run, Flutter must compile GLSL shaders to GPU machine code at runtime. This causes one-time jank (dropped frames) the first time certain animations or widgets render — visible as a stutter on first scroll or transition.
+
+**SkSL shader warmup** — capture shaders during a profile run, bundle them with the app, and pre-compile at startup:
+
+```bash
+# Record shaders during a profile run on a device
+flutter run --profile --cache-sksl --purge-persistent-cache
+
+# Interact with the app to exercise all animations, then press 'M' to save
+# The shaders are saved to flutter_01.sksl.json
+
+# Bundle on build
+flutter build apk --bundle-sksl-path flutter_01.sksl.json
+```
+
+Impeller (the new Flutter rendering backend, default on iOS since Flutter 3.10, Android since 3.16) eliminates shader compilation jank entirely by pre-compiling shaders at engine build time. On targets running Impeller, SkSL warmup is unnecessary.
 
 ---
 
@@ -1461,10 +1642,14 @@ CachedNetworkImage(imageUrl: url)
 
 | Question | Answer |
 |----------|--------|
-| What causes jank? | Work on the UI thread > 16ms. Typically: heavy synchronous computation, excessive rebuilds, large images decoded at full res |
-| What is the raster thread? | GPU thread. Responsible for compositing layers. Blocked by complex shaders or too many layers |
-| How to check if a widget rebuilds? | Add `debugPrint` in `build`, or use `flutter_hooks` / Widget Inspector |
-| What is `Sliver`? | Low-level, lazy scroll primitive. Powers all scrollable widgets |
+| What causes jank? | Work on the UI thread > 16ms per frame: heavy sync computation, excessive rebuilds, large images decoded at full resolution, shader compilation |
+| What is the raster thread? | The GPU compositor thread. Blocked by too many layers, complex shaders, or overdraw |
+| How do you find unnecessary rebuilds? | Widget Inspector → "Track widget build counts"; or `debugProfileBuildsEnabled = true` |
+| What is a Sliver? | Low-level lazy scroll primitive. All Flutter scrollable widgets are built on Slivers |
+| When does `const` help performance? | When the widget is `const`, Flutter skips `build()` on rebuild — the element is reused entirely |
+| When to use `RepaintBoundary`? | When a subtree repaints frequently (animations) while the rest is stable. Avoid overuse — each boundary is a GPU layer |
+| What is Impeller? | Flutter's new rendering backend. Pre-compiles shaders at engine build time, eliminating shader compilation jank. Default on iOS (3.10+) and Android (3.16+) |
+| How do you limit Riverpod rebuilds? | `ref.watch(provider.select((s) => s.field))` — only rebuilds when that specific field changes |
 
 ---
 
@@ -1599,66 +1784,254 @@ testWidgets('ProfileCard matches golden', (tester) async {
 
 ### 9.1 MethodChannel
 
-Flutter → Native call (one-shot):
+`MethodChannel` is for one-shot calls: Dart invokes a method, waits for a single response. Think of it as an async RPC between Dart and the native layer. The channel name is a namespace string — by convention `com.company.app/feature`.
+
+**Threading model:** MethodChannel handlers are always called on the platform's main thread (UI thread on Android, main thread on iOS). Never do blocking work there — dispatch to a background thread for anything slow.
 
 ```dart
 // Dart side
-const channel = MethodChannel('com.myapp.app/biometric');
+const _channel = MethodChannel('com.myapp/biometric');
 
-Future<bool> authenticate() async {
-  return await channel.invokeMethod<bool>('authenticate') ?? false;
-}
-
-// iOS (Swift)
-let channel = FlutterMethodChannel(name: "com.myapp.app/biometric", binaryMessenger: controller.binaryMessenger)
-channel.setMethodCallHandler { call, result in
-  if call.method == "authenticate" {
-    // Local auth logic
-    result(true)
+Future<bool> authenticate(String reason) async {
+  try {
+    return await _channel.invokeMethod<bool>('authenticate', {'reason': reason}) ?? false;
+  } on PlatformException catch (e) {
+    // Native threw — e.code and e.message are set by the native handler
+    throw AuthException(e.message ?? 'Authentication failed');
   }
 }
+```
+
+```swift
+// iOS — AppDelegate.swift or a FlutterPlugin
+let channel = FlutterMethodChannel(
+  name: "com.myapp/biometric",
+  binaryMessenger: controller.binaryMessenger
+)
+
+channel.setMethodCallHandler { call, result in
+  guard call.method == "authenticate" else {
+    result(FlutterMethodNotImplemented)
+    return
+  }
+  let reason = (call.arguments as? [String: Any])?["reason"] as? String ?? "Authenticate"
+  LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+    DispatchQueue.main.async {
+      success ? result(true) : result(FlutterError(code: "AUTH_FAILED", message: error?.localizedDescription, details: nil))
+    }
+  }
+}
+```
+
+```kotlin
+// Android — MainActivity.kt
+MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.myapp/biometric")
+  .setMethodCallHandler { call, result ->
+    if (call.method == "authenticate") {
+      val reason = call.argument<String>("reason") ?: "Authenticate"
+      // BiometricPrompt setup ...
+      result.success(true)
+    } else {
+      result.notImplemented()
+    }
+  }
 ```
 
 ---
 
 ### 9.2 EventChannel
 
-Use `EventChannel` when native code needs to push a **continuous stream of events** to Dart — for example, sensor readings, Bluetooth device discoveries, or network connectivity changes. Unlike `MethodChannel` (one request → one response), an EventChannel establishes a persistent subscription: the native side calls `eventSink.success(data)` repeatedly, and Dart receives each emission as a stream event.
+Use `EventChannel` when native code needs to push a **continuous stream of events** to Dart — sensor readings, Bluetooth scans, connectivity changes, location updates. Unlike `MethodChannel` (one request → one response), `EventChannel` establishes a persistent subscription: native calls `eventSink.success(data)` on each event, and Dart receives each as a stream emission.
 
 ```dart
-// Dart
-const eventChannel = EventChannel('com.myapp.app/sensor_data');
+// Dart side
+const _channel = EventChannel('com.myapp/accelerometer');
 
-Stream<SensorData> get sensorStream =>
-    eventChannel.receiveBroadcastStream().map((e) => SensorData.fromMap(e));
+Stream<AccelerometerData> get accelerometerStream =>
+    _channel
+        .receiveBroadcastStream()
+        .map((e) => AccelerometerData.fromMap(Map<String, double>.from(e)));
 ```
+
+```swift
+// iOS — StreamHandler
+class AccelerometerStreamHandler: NSObject, FlutterStreamHandler {
+  private let motionManager = CMMotionManager()
+
+  func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
+    motionManager.accelerometerUpdateInterval = 0.1
+    motionManager.startAccelerometerUpdates(to: .main) { data, _ in
+      guard let data = data else { return }
+      eventSink(["x": data.acceleration.x, "y": data.acceleration.y, "z": data.acceleration.z])
+    }
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    motionManager.stopAccelerometerUpdates() // ALWAYS stop when unsubscribed
+    return nil
+  }
+}
+
+// Register
+FlutterEventChannel(name: "com.myapp/accelerometer", binaryMessenger: controller.binaryMessenger)
+  .setStreamHandler(AccelerometerStreamHandler())
+```
+
+Key points:
+- `onCancel` is called when Dart cancels the stream subscription — always release native resources there
+- The `eventSink` must only be called on the main thread; wrap background callbacks with `DispatchQueue.main.async`
+- `eventSink(FlutterError(...))` sends an error event; `eventSink(FlutterEndOfEventStream)` closes the stream
 
 ---
 
 ### 9.3 Pigeon (Recommended for new code)
 
-Pigeon is Google's code generator for platform channels. You define the API once in Dart using annotations, then run `dart run pigeon --input pigeons/biometric.dart` to generate type-safe Swift, Kotlin, and Dart glue code. This eliminates stringly-typed method names (the root cause of most channel bugs) and gives you compile-time verification that both sides of the channel agree on method signatures and argument types.
+Raw platform channels use string method names and untyped `dynamic` arguments — a typo in the method name causes a runtime crash, and mismatched argument types are invisible until runtime. Pigeon generates type-safe Dart, Swift, and Kotlin code from a single Dart definition, so mismatches are compile-time errors.
+
+**Define the API once in Dart:**
 
 ```dart
-// Define in Dart, generates Swift/Kotlin stubs
-@HostApi()
-abstract class BiometricApi {
-  bool authenticate(String reason);
+// pigeons/biometric.dart
+import 'package:pigeon/pigeon.dart';
+
+@ConfigurePigeon(PigeonOptions(
+  dartOut: 'lib/src/platform/biometric.g.dart',
+  swiftOut: 'ios/Runner/Biometric.g.swift',
+  kotlinOut: 'android/app/src/main/kotlin/com/myapp/Biometric.g.kt',
+))
+
+class AuthRequest {
+  AuthRequest({required this.reason});
+  String reason;
+}
+
+class AuthResult {
+  AuthResult({required this.success, this.errorMessage});
+  bool success;
+  String? errorMessage;
+}
+
+@HostApi()  // native implements this, Dart calls it
+abstract class BiometricHostApi {
+  @async
+  AuthResult authenticate(AuthRequest request);
+}
+
+@FlutterApi()  // Dart implements this, native calls it
+abstract class BiometricFlutterApi {
+  void onAuthStateChanged(bool isAuthenticated);
 }
 ```
+
+```bash
+dart run pigeon --input pigeons/biometric.dart
+```
+
+**Generated usage — fully typed, no strings:**
+
+```dart
+// Dart call site — no strings, no dynamic, compile-time safe
+final api = BiometricHostApi();
+final result = await api.authenticate(AuthRequest(reason: 'Access your account'));
+if (!result.success) showError(result.errorMessage);
+```
+
+```swift
+// Swift — implement the generated protocol
+class BiometricApiImpl: BiometricHostApi {
+  func authenticate(request: AuthRequest, completion: @escaping (AuthResult) -> Void) {
+    // typed — AuthRequest and AuthResult are generated Swift classes
+    completion(AuthResult(success: true, errorMessage: nil))
+  }
+}
+
+// Register
+BiometricHostApiSetup.setUp(binaryMessenger: controller.binaryMessenger, api: BiometricApiImpl())
+```
+
+**When to use Pigeon vs raw channels:**
+- New code: always Pigeon — safer, easier to maintain, required by Google's internal Flutter style guide
+- Simple one-off integrations in prototypes: raw `MethodChannel` is fine
+- Existing plugin: raw channels are already there; migrate when touching the channel anyway
 
 ---
 
 ### 9.4 FFI (Dart Foreign Function Interface)
 
-FFI lets Dart call C/C++ functions directly, bypassing the platform channel serialization overhead entirely — no message encoding, no round-trip to the platform thread. Use it for performance-critical native code (image codecs, cryptography, ML inference runtimes) where the channel overhead would be prohibitive. The trade-off: FFI is more complex (you manage C memory and pointer types manually) and platform channel safety guarantees don't apply.
+FFI lets Dart call C/C++ functions directly, bypassing platform channel serialization entirely — no message encoding, no round-trip to the platform main thread. Use it for performance-critical native code: image codecs, cryptography, ML inference, audio DSP.
 
-`DynamicLibrary.open` loads a native shared library; `lookupFunction` resolves a symbol by name and binds it to a Dart function type. The two type parameters are: `<NativeType, DartType>`.
+The trade-off: you manage C memory manually (allocate, read, free). Mistakes cause memory leaks or crashes — no Dart garbage collector to save you.
 
 ```dart
-final dylib = DynamicLibrary.open('libcrypto.so');
-final sha256 = dylib.lookupFunction<Pointer Function(Pointer), Pointer Function(Pointer)>('SHA256');
+import 'dart:ffi';
+import 'package:ffi/ffi.dart';
+
+// Define the native function signature
+typedef NativeSha256 = Pointer<Uint8> Function(Pointer<Uint8> data, Int32 length);
+typedef DartSha256  = Pointer<Uint8> Function(Pointer<Uint8> data, int length);
+
+// Load the shared library and resolve the symbol
+final dylib    = DynamicLibrary.open('libcrypto.so');   // Android
+// DynamicLibrary.process() — for symbols already in the process (iOS static libs)
+final sha256Fn = dylib.lookupFunction<NativeSha256, DartSha256>('SHA256');
+
+Uint8List hashBytes(Uint8List input) {
+  // Allocate native memory
+  final inputPtr  = calloc<Uint8>(input.length);
+  final outputPtr = calloc<Uint8>(32); // SHA-256 output is 32 bytes
+
+  try {
+    inputPtr.asTypedList(input.length).setAll(0, input);
+    sha256Fn(inputPtr, input.length);
+    return Uint8List.fromList(outputPtr.asTypedList(32));
+  } finally {
+    calloc.free(inputPtr);   // ALWAYS free — no GC for native memory
+    calloc.free(outputPtr);
+  }
+}
 ```
+
+**`dart:ffi` key types:**
+
+| Type | Purpose |
+|---|---|
+| `Pointer<T>` | Typed pointer to native memory |
+| `NativeFunction<F>` | Represents a C function type |
+| `calloc` / `malloc` | Allocate native memory (must be freed manually) |
+| `using(arena, ...)` | Arena allocator — frees all allocations when the block exits |
+| `Struct` / `Union` | Map C structs/unions to Dart classes |
+| `TransferableTypedData` | Zero-copy binary data transfer (isolates, not FFI) |
+
+**`Arena` allocator** — preferred over manual `calloc.free` for multiple allocations:
+
+```dart
+final result = using((Arena arena) {
+  final ptr = arena<Uint8>(32);
+  // arena frees ptr automatically when this block exits, even on exception
+  sha256Fn(ptr, 32);
+  return Uint8List.fromList(ptr.asTypedList(32));
+});
+```
+
+**When to use FFI vs MethodChannel:**
+
+| | MethodChannel / Pigeon | FFI |
+|---|---|---|
+| Overhead | Serialization + platform thread hop | Near-zero |
+| Safety | Platform guarantees, typed with Pigeon | Manual memory management |
+| Threading | Always called on platform main thread | Called on current Dart thread |
+| Use for | UI-level native APIs (auth, camera, sensors) | CPU-intensive native libs (codecs, crypto, ML) |
+
+---
+
+### 9.5 Plugins vs Packages
+
+- **Package** — pure Dart, no native code. Works on all platforms.
+- **Plugin** — contains platform-specific code (Swift/Kotlin/C++) alongside Dart. Registered with the Flutter plugin system.
+- **Federated plugin** — the modern structure: `foo` (interface), `foo_android`, `foo_ios`, `foo_web` are separate packages. Platform teams can update their implementations independently.
+
+When writing a plugin: prefer Pigeon for the channel interface, implement `FlutterPlugin` on Android and `FlutterPlugin` protocol on iOS, and register in the plugin's `registerWith` method — not in the app's `AppDelegate`.
 
 ---
 
@@ -1666,9 +2039,13 @@ final sha256 = dylib.lookupFunction<Pointer Function(Pointer), Pointer Function(
 
 | Question | Answer |
 |----------|--------|
-| MethodChannel vs EventChannel? | Method: one-shot call. Event: continuous stream from native |
-| What is Pigeon? | Code-gen for type-safe platform channels. Preferred over raw strings |
-| What is a Flutter plugin? | A package that wraps native platform functionality for Dart consumption |
+| MethodChannel vs EventChannel? | Method: one-shot call, one response. Event: persistent subscription, native pushes a stream of events |
+| What is Pigeon? | Google's code generator for type-safe platform channels — eliminates stringly-typed method names, generates Swift/Kotlin/Dart stubs from a single Dart definition |
+| FFI vs MethodChannel? | FFI: near-zero overhead, direct C call, manual memory. MethodChannel: serialization cost, always on platform main thread, safer |
+| What is a federated plugin? | A plugin split into interface + per-platform packages (`foo`, `foo_android`, `foo_ios`) — platforms can be maintained independently |
+| What thread do MethodChannel handlers run on? | The platform's main thread (UI thread). Never block it — dispatch heavy work to a background thread first |
+| When would you use `DynamicLibrary.process()`? | On iOS, where static libraries are linked into the main binary — there's no `.so` file to open |
+| What is `Arena` in FFI? | A scoped allocator — all native memory allocated within its block is freed when the block exits, preventing leaks |
 
 ---
 
