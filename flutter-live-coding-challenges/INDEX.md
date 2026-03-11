@@ -4,7 +4,7 @@
 
 | Category | Total | Created | Remaining |
 |----------|-------|---------|-----------|
-| Extensions | 80 | 20 (README) + 20 (files) | 40 |
+| Extensions | 80 | 20 (full: README + main.dart + solution) | 60 |
 | Dart Fundamentals | 80 | 50 (README) | 30 |
 | Widgets | 80 | 80 (README) | 0 |
 | State Management | 80 | 0 | 80 |
@@ -19,6 +19,10 @@
 | Multiple Choice | 50 | 50 | 0 |
 
 **Total: 500+ exercises planned**
+
+### Legend
+- **README**: Exercise descriptions in category README
+- **full**: Individual folder with README.md + main.dart + solution
 
 ---
 
