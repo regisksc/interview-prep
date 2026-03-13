@@ -44,6 +44,7 @@ Beginner-friendly system design interview preparation.
 | File | Content |
 |------|---------|
 | `README.md` | Fundamentals guide - concepts every beginner should know |
+| `exercises.md` | 30+ practice exercises (Counter → Google Search) |
 | `01-booking-system/` | Deep-dive mock interview (appointment booking) |
 
 **Topics Covered**:
@@ -75,12 +76,16 @@ Beginner-friendly system design interview preparation.
 - Read all of `system-design-interview/README.md`
 - Understand each component (cache, DB, load balancer)
 
-### Week 6: System Design Deep-Dive
-- Complete booking system exercise
+### Week 6: System Design Exercises
+- Complete 5 exercises from `exercises.md` (Level 1-2)
+- Focus on API design and database schema
+
+### Week 7: System Design Deep-Dive
+- Complete booking system exercise (`01-booking-system/`)
 - Practice explaining architecture out loud
 
-### Week 7-8: Mock Interviews
-- Random exercise selection (timed)
+### Week 8: Mock Interviews
+- Random Flutter exercises (timed, 15-30 min)
 - Full system design questions (45 min each)
 
 ---
@@ -108,7 +113,8 @@ interview-prep/
 │   ├── multiple-choice/      # Theory questions
 │   └── INDEX.md              # Progress tracking
 ├── system-design-interview/
-│   ├── README.md             # Beginner's guide
+│   ├── README.md             # Beginner's guide (fundamentals)
+│   ├── exercises.md          # 30+ practice exercises
 │   └── 01-booking-system/    # Mock interview exercise
 └── README.md                 # This file
 ```
