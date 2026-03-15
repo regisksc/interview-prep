@@ -29,7 +29,8 @@
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/async_streams && flutter analyze 2>&1 | tail -5)",
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/performance && flutter analyze 2>&1 | tail -5)",
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/state_management && flutter analyze 2>&1 | tail -10)",
-      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/widget_lifecycle && flutter analyze 2>&1 | tail -5 && cd ../async_streams && flutter analyze 2>&1 | tail -5)"
+      "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/widget_lifecycle && flutter analyze 2>&1 | tail -5 && cd ../async_streams && flutter analyze 2>&1 | tail -5)",
+      "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf*)"
