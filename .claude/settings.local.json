@@ -30,7 +30,13 @@
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/performance && flutter analyze 2>&1 | tail -5)",
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/state_management && flutter analyze 2>&1 | tail -10)",
       "Bash(cd /home/regis/study/interview-prep/flutter/practice/challenges/widget_lifecycle && flutter analyze 2>&1 | tail -5 && cd ../async_streams && flutter analyze 2>&1 | tail -5)",
-      "WebSearch"
+      "Bash(git add flutter/FLUTTER_INTERVIEW_PREP.md && git commit -m \"$\\(cat <<'EOF'\ndocs\\(module-3\\): add declaration and usage examples for all Riverpod provider types\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git add flutter/FLUTTER_INTERVIEW_PREP.md && git commit -m \"$\\(cat <<'EOF'\ndocs\\(module-3\\): clarify family and autoDispose modifiers with better explanations\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push)",
+      "Bash(git add flutter/FLUTTER_INTERVIEW_PREP.md && git commit -m \"$\\(cat <<'EOF'\ndocs\\(module-5\\): deep rewrite of async, streams, isolates and event loop sections\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push)",
+      "Bash(git add flutter/FLUTTER_INTERVIEW_PREP.md && git commit -m \"$\\(cat <<'EOF'\ndocs\\(module-5\\): clarify Completer with before/after callback bridge example\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push)",
+      "Bash(find /home/regis -name \"*system*\" -o -name \"*design*\" 2>/dev/null | grep -v \".git\" | grep -v \"node_modules\" | grep \".md\" | head -20)",
+      "Bash(find /home/regis -path \"*/system-design*\" -name \"*.md\" 2>/dev/null | head -20)",
+      "Bash(find /home/regis -name \"system-design\" -type d 2>/dev/null; find /home/regis -path \"*system*design*\" 2>/dev/null | grep -v \".git\" | head -20)"
     ],
     "deny": [
       "Bash(rm -rf*)"
