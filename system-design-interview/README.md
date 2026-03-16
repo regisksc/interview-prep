@@ -1440,6 +1440,23 @@ Risk:
   The client was told "success" but the database never received it.
 ```
 
+**What "flush" means here:** Flushing is the act of draining accumulated writes from the cache into the database. The background job collects all the dirty (modified-but-not-yet-persisted) entries in Redis and bulk-writes them to PostgreSQL in one batch. Once successfully written to the database, those entries are no longer considered dirty. Think of it like a buffer: writes pile up in Redis, and every few seconds the buffer is drained ("flushed") into durable storage.
+
+```
+Flush cycle example (view counts):
+  T=0s  Redis: video_123.views = 1,000  (DB still shows 950)
+  T=1s  Redis: video_123.views = 1,005  (5 new views, DB untouched)
+  T=2s  Redis: video_123.views = 1,009  (4 more views)
+  T=3s  Background flush runs:
+          → reads 1,009 from Redis
+          → writes 1,009 to PostgreSQL
+          → marks entry as clean
+        DB now shows 1,009. Redis and DB are in sync.
+  T=4s  Redis: video_123.views = 1,010  (cycle starts again)
+```
+
+The danger window is the gap between when a write lands in Redis and when the next flush completes. Any crash inside that window means those buffered writes are gone.
+
 **When to use:** Only for data where losing a small amount of recent writes is acceptable. Examples: analytics counters, view counts, like counts on social media. You wouldn't use this for appointment bookings or patient records.
 
 **In an interview:** Mentioning write-back and immediately saying "but I wouldn't use this for health records because of the data loss risk" shows you understand the trade-off, not just the pattern.
