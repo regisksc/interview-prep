@@ -1,0 +1,16 @@
+name: flutter_interview_practice
+description: "Dart workspace root — shared dependency resolution for all practice apps."
+publish_to: none
+
+environment:
+  sdk: ^3.7.0
+
+workspace:
+  - challenges/dart_fundamentals
+  - challenges/widget_lifecycle
+  - challenges/riverpod
+  - challenges/async_streams
+  - challenges/performance
+  - build/stopwatch/starter
+  - build/live_search/starter
+  - build/todos/starter

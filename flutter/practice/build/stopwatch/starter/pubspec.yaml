@@ -1,0 +1,14 @@
+name: stopwatch_starter
+description: "Stopwatch build exercise."
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.7.0
+  flutter: ">=3.29.0"
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
