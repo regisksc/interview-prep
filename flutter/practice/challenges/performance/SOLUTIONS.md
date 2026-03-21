@@ -1,35 +1,12 @@
-# Solutions — Performance
-
-## Symptoms
-1. Typing in the search field feels laggy — every character causes a noticeable
-   frame drop even on a modern device.
-2. The initial load and every filter change renders all 2 000 items at once,
-   even those far off-screen.
-3. Scrolling through the list is janky because every frame has to lay out and
-   paint all visible and invisible items simultaneously.
+# Solutions & Rubric — Performance
 
 ---
 
 ## Bug 1 — Expensive computation inside `build()`
 
-**Where:** `_CatalogScreenState.build()`.
+**Root cause:** Filtering and sorting 2 000 items runs on every `build()` call. Flutter can call `build()` many times per second — every `setState`, parent rebuild, or animation frame re-runs the full filter+sort on the UI thread, causing jank.
 
-```dart
-final filtered = _allProducts
-    .where(...)
-    .toList()
-  ..sort((a, b) => a.price.compareTo(b.price));
-```
-
-This runs on **every** call to `build()`. Flutter can call `build()` many times
-per second (every frame during animations, every `setState`, every parent
-rebuild). Filtering and sorting 2 000 items synchronously on the UI thread on
-every frame causes jank.
-
-**Fix:** compute filtered/sorted results only when the inputs actually change,
-not on every render. Move the computation to a helper called from `_onSearch`
-and `_onCategory`, and store the result in state:
-
+**Fix:** compute only when inputs change; store the result in state.
 ```dart
 late List<Product> _filtered;
 
@@ -53,58 +30,67 @@ void _onSearch(String value) {
 }
 
 void _onCategory(String? value) {
-  if (value != null) setState(() { _selectedCategory = value!; _recompute(); });
+  if (value != null) setState(() { _selectedCategory = value; _recompute(); });
 }
 ```
-
-Now `build()` just reads `_filtered` — no computation at render time.
+`build()` now just reads `_filtered` — no computation at render time.
 
 ---
 
 ## Bug 2 — `ListView` materializes all items at once
 
-**Where:** The `ListView` at the bottom of `build()`.
+**Root cause:** `ListView(children: [...])` builds every widget upfront regardless of visibility. With 2 000 items, 2 000 `ListTile` widgets are created, laid out, and painted before the first frame — slow initial render and wasteful memory.
 
-```dart
-ListView(
-  children: filtered.map((p) => ListTile(...)).toList(),
-)
-```
-
-`ListView` with a `children` list builds every widget upfront, regardless of
-whether it is visible. With 2 000 items that means 2 000 `ListTile` widgets
-created, laid out, and painted before the first frame. This is both slow to
-load and wasteful of memory.
-
-**Fix:** use `ListView.builder`, which lazily creates only the items currently
-visible on screen (typically ~20–30):
-
+**Fix:**
 ```dart
 ListView.builder(
-  itemCount: filtered.length,
+  itemCount: _filtered.length,
   itemBuilder: (_, i) => ListTile(
-    title: Text(filtered[i].name),
-    subtitle: Text(filtered[i].category),
-    trailing: Text('\$${filtered[i].price.toStringAsFixed(2)}'),
+    title: Text(_filtered[i].name),
+    subtitle: Text(_filtered[i].category),
+    trailing: Text('\$${_filtered[i].price.toStringAsFixed(2)}'),
   ),
 )
 ```
+`ListView.builder` lazily creates only the items currently in the viewport (~20–30 at a time).
 
 ---
 
-## Bug 3 — `setState` called even when the value has not changed
+## Bug 3 — `setState` called unconditionally
 
-**Where:** `_onSearch` (and potentially `_onCategory`).
+**Root cause:** `onChanged` fires whenever the field emits a value, including when the user pastes the same text or presses a modifier key. `setState` is called even when `_query` hasn't changed, scheduling an unnecessary rebuild. Combined with Bug 1 this multiplies the jank.
 
-If the user pastes the same text or presses a modifier key, `onChanged` fires
-with the same string. `setState` is called unconditionally, triggering a full
-`build()` for no reason. Combined with Bug 1, this amplifies the jank.
-
-**Fix:** guard the state update:
-
+**Fix:**
 ```dart
 void _onSearch(String value) {
   if (value == _query) return;
   setState(() { _query = value; _recompute(); });
 }
 ```
+
+---
+
+## Interview Rubric
+
+### Hard Approved
+- Finds all 3 bugs, explains their compounding relationship, and prioritises them correctly (Bug 1 + Bug 2 have the most impact; Bug 3 is secondary).
+- Bug 1: knows that `build()` can be called far more often than state changes, and that it is the wrong place for non-trivial computation. Can name alternatives: caching in state, `didUpdateWidget`, derived state via Riverpod/`select`.
+- Bug 2: knows the difference between `ListView`, `ListView.builder`, and `ListView.separated` — and when `SliverList` / `SliverPrototypeExtentList` would be preferred over all of them.
+- Bug 3: understands that `setState` triggers a synchronous call to `build()` and should be guarded.
+- Bonus: mentions `itemExtent` on `ListView.builder` as a further optimization — skips the layout measurement step when all items are the same height.
+- Bonus: knows how to use DevTools (Performance overlay, Widget Rebuild tracker, CPU profiler) to locate these issues empirically rather than by reading code.
+- Bonus: proposes moving the filter/sort to an `Isolate` or using `compute()` for very large datasets.
+
+### Soft Approved
+- Finds and fixes at least 2 of the 3 bugs.
+- Fixes Bug 2 immediately (`ListView.builder`) but needs a moment to connect Bug 1 to the build cycle.
+- Knows `ListView.builder` is lazy but cannot precisely explain when each item widget is created and destroyed.
+- Finds Bug 3 only after Bugs 1 and 2 are resolved, or only when pointed to `_onSearch`.
+- Cannot articulate when to prefer `Isolate`/`compute` vs caching in state.
+
+### Rejected
+- Finds 1 or fewer bugs, or finds them only after being shown the symptoms in DevTools.
+- Wraps the filter+sort in a `FutureBuilder` to move it off the main thread — shows initiative but misunderstands that `FutureBuilder` still runs in the UI isolate; `compute()` is needed for true parallelism.
+- Replaces `ListView` with `ListView.builder` but keeps the filter+sort in `build()` — fixes Bug 2 while missing the more impactful Bug 1.
+- Cannot explain why calling `setState` with the same value causes a rebuild, or does not know that `setState` is synchronous with respect to `build()`.
+- Has not used Flutter DevTools and cannot describe how they would diagnose a performance issue without reading the code.

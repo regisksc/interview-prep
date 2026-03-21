@@ -4,33 +4,28 @@ This repository contains comprehensive interview preparation materials for Flutt
 
 ## Contents
 
-### 1. Flutter Live Coding Challenges
+### 1. Flutter
 
-**Location**: `flutter-live-coding-challenges/`
+**Location**: `flutter/`
 
-500+ coding exercises for Flutter/Dart technical interviews.
+Interview guide, live coding exercises, and runnable practice challenges.
 
-| Category | Exercises | Status |
-|----------|-----------|--------|
-| Extensions | 80 | 20 complete with solutions |
-| Dart Fundamentals | 80 | README complete |
-| Widgets | 80 | README complete |
-| State Management | 80 | Planned |
-| Async & Streams | 60 | Planned |
-| Multiple Choice | 50 | Complete |
-
-**Structure per exercise**:
-```
-extensions/001-movie-length/
-├── README.md       # Challenge, requirements, hints
-├── main.dart       # Starter code
-└── ../solutions/   # Solution files
-```
+| What | Location |
+|------|----------|
+| Interview guide (2 500 lines) | `flutter/FLUTTER_INTERVIEW_PREP.md` |
+| Extensions (20, with solutions) | `flutter/practice/extensions/` |
+| Multiple choice questions | `flutter/practice/multiple-choice/` |
+| Bug-hunt challenges (5 topics) | `flutter/practice/challenges/` |
+| Build-from-scratch challenges | `flutter/practice/challenges/` |
+| Progress index | `flutter/practice/INDEX.md` |
 
 **Getting Started**:
 ```bash
-cd flutter-live-coding-challenges/extensions/001-movie-length
-dart run
+# Dart-only exercises
+cd flutter/practice/extensions/001-movie-length && dart run
+
+# Runnable Flutter challenges
+cd flutter/practice/challenges/dart_fundamentals && flutter run
 ```
 
 ---
@@ -65,27 +60,27 @@ Beginner-friendly system design interview preparation.
 ## Study Plan
 
 ### Week 1-2: Dart Fundamentals
-- 10 extension exercises daily
+- 10 extension exercises daily (`flutter/practice/extensions/`)
 - Focus on syntax and basic transformations
 
-### Week 3-4: Widgets
-- 10 widget exercises daily
-- Understand stateful vs stateless deeply
+### Week 3-4: Flutter Internals
+- Read `flutter/FLUTTER_INTERVIEW_PREP.md` modules 1–4
+- Work through bug-hunt challenges (`flutter/practice/challenges/`)
 
-### Week 5: System Design Basics
+### Week 5: State Management
+- Build-from-scratch challenges: streams, RxDart, Riverpod
+- Multiple choice warm-up (`flutter/practice/multiple-choice/`)
+
+### Week 6: System Design Basics
 - Read all of `system-design-interview/README.md`
 - Understand each component (cache, DB, load balancer)
 
-### Week 6: System Design Exercises
-- Complete 5 exercises from `exercises.md` (Level 1-2)
-- Focus on API design and database schema
-
 ### Week 7: System Design Deep-Dive
+- Complete 5 exercises from `exercises.md` (Level 1-2)
 - Complete booking system exercise (`01-booking-system/`)
-- Practice explaining architecture out loud
 
 ### Week 8: Mock Interviews
-- Random Flutter exercises (timed, 15-30 min)
+- Random Flutter challenges (timed, 15-30 min)
 - Full system design questions (45 min each)
 
 ---
@@ -106,15 +101,18 @@ Beginner-friendly system design interview preparation.
 
 ```
 interview-prep/
-├── flutter-live-coding-challenges/
-│   ├── extensions/           # Extension method exercises
-│   ├── dart-files/           # Pure Dart challenges
-│   ├── widgets/              # Flutter widget exercises
-│   ├── multiple-choice/      # Theory questions
-│   └── INDEX.md              # Progress tracking
+├── flutter/
+│   ├── FLUTTER_INTERVIEW_PREP.md   # Full interview guide
+│   └── practice/
+│       ├── challenges/             # Bug-hunt + build-from-scratch apps
+│       ├── extensions/             # Dart extension exercises (20)
+│       ├── dart-files/             # Pure Dart challenges
+│       ├── widgets/                # Flutter widget exercises
+│       ├── multiple-choice/        # Theory questions
+│       └── INDEX.md                # Progress tracking
 ├── system-design-interview/
-│   ├── README.md             # Beginner's guide (fundamentals)
-│   ├── exercises.md          # 30+ practice exercises
-│   └── 01-booking-system/    # Mock interview exercise
-└── README.md                 # This file
+│   ├── README.md                   # Beginner's guide (fundamentals)
+│   ├── exercises.md                # 30+ practice exercises
+│   └── 01-booking-system/          # Mock interview exercise
+└── README.md                       # This file
 ```

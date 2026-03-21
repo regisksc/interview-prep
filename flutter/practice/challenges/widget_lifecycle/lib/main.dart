@@ -1,3 +1,16 @@
+// Challenge: Widget Lifecycle — Live Score
+//
+// A two-screen app that simulates a live match score updating every 2 seconds,
+// with a pulse animation on each increment and an async save action.
+//
+// Concepts in play: initState / dispose, Timer, AnimationController,
+// async operations with BuildContext across await gaps.
+//
+// Known issues (3 bugs):
+//   - After navigating back from the match screen, the console keeps printing errors.
+//   - Tapping "Save score" and immediately navigating back causes a crash.
+//   - Navigating in and out of the screen repeatedly leaks memory each time.
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 

@@ -1,23 +1,12 @@
-# Solutions — Dart Fundamentals
-
-## Symptoms
-1. You can add the same item multiple times — the duplicate check never fires.
-2. Tapping a checkbox does nothing — the item stays unchecked forever.
-3. Tapping **Clear bought** crashes the app at runtime.
+# Solutions & Rubric — Dart Fundamentals
 
 ---
 
 ## Bug 1 — Missing `==` / `hashCode` on `ShoppingItem`
 
-**Where:** `ShoppingItem` class.
+**Root cause:** `_items.contains(newItem)` uses Dart's default `==`, which is reference equality. Two `ShoppingItem` instances with the same `name` are different objects, so `contains` always returns `false` and duplicates accumulate.
 
-`_items.contains(newItem)` uses `==` to compare objects. Dart's default `==`
-is reference (identity) equality, so two separate `ShoppingItem` instances with
-identical names are never considered equal — `contains` always returns `false`
-and duplicates accumulate freely.
-
-**Fix:** override `==` and `hashCode`:
-
+**Fix:**
 ```dart
 @override
 bool operator ==(Object other) =>
@@ -31,18 +20,9 @@ int get hashCode => name.hashCode;
 
 ## Bug 2 — `copyWith` result discarded
 
-**Where:** `_toggleBought()`.
+**Root cause:** `copyWith` returns a *new* object — it does not mutate in place. The result is never assigned back to `_items[index]`, so the list holds the original unchanged object and `setState` redraws the same data.
 
-```dart
-_items[index].copyWith(bought: !_items[index].bought); // result thrown away
-```
-
-`copyWith` creates and returns a *new* object — it does not mutate in place.
-The returned object is never assigned, so `_items[index]` is unchanged.
-`setState` triggers a rebuild that re-renders the exact same data.
-
-**Fix:** assign the result back:
-
+**Fix:**
 ```dart
 void _toggleBought(int index) {
   setState(() {
@@ -53,24 +33,38 @@ void _toggleBought(int index) {
 
 ---
 
-## Bug 3 — Modifying a `List` while iterating over it
+## Bug 3 — Mutating a `List` while iterating over it
 
-**Where:** `_clearBought()`.
+**Root cause:** Dart's `List` iterator tracks a modification stamp. Calling `remove()` during a `for-in` loop invalidates the iterator and throws `ConcurrentModificationError` at runtime.
 
-```dart
-for (final item in _items) {
-  if (item.bought) _items.remove(item); // ConcurrentModificationError
-}
-```
-
-Dart's `List` iterator tracks a modification stamp. Calling `remove()` (or
-any mutating operation) while a `for-in` is active invalidates the iterator and
-throws `ConcurrentModificationError` at runtime.
-
-**Fix:** use `removeWhere`, which is safe:
-
+**Fix:**
 ```dart
 void _clearBought() {
   setState(() => _items.removeWhere((item) => item.bought));
 }
 ```
+
+---
+
+## Interview Rubric
+
+### Hard Approved
+- Identifies all 3 bugs and explains the *why* behind each, not just the fix:
+  - Knows that Dart's default `==` is reference equality and that value types need an explicit override.
+  - Understands that `copyWith` is a pure function and the result must be captured.
+  - Knows why concurrent modification throws and can name a safe alternative (`removeWhere`, iterating a copy, building a new list).
+- Bonus: mentions that `hashCode` must be consistent with `==` (same fields), and that violating this contract breaks `Set`, `Map`, and any hash-based collection.
+- Bonus: offers `Equatable` or `freezed` as alternatives to manual `==`/`hashCode`.
+
+### Soft Approved
+- Finds and fixes at least 2 of the 3 bugs with correct reasoning.
+- May fix Bug 3 by iterating over a copy (`List.from`) rather than `removeWhere` — valid but less idiomatic; can be discussed.
+- Misses Bug 1 or conflates it with a logic error rather than an equality contract issue.
+- Understands immutability conceptually but needed a moment to spot the discarded return value.
+
+### Rejected
+- Finds 1 or fewer bugs.
+- Attempts to fix Bug 2 by removing `copyWith` and mutating `bought` directly on the object — misunderstands why the class is `final`.
+- Cannot explain why `contains` fails — blames the list logic rather than the equality contract.
+- Fixes Bug 3 with a `try/catch` around the crash rather than understanding the root cause.
+- Does not know what `hashCode` is for or why it must match `==`.

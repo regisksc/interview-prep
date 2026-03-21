@@ -1,3 +1,16 @@
+// Challenge: Dart Fundamentals — Shopping List
+//
+// A shopping list app where users add items, mark them as bought,
+// and clear all bought items at once.
+//
+// Concepts in play: value equality, immutable data classes, copyWith pattern,
+// safe collection mutation.
+//
+// Known issues (3 bugs):
+//   - Adding an item that already exists shows no warning and adds a duplicate.
+//   - Tapping a checkbox appears to do nothing — the item never changes state.
+//   - Tapping "Clear bought" crashes the app instead of removing bought items.
+
 import 'package:flutter/material.dart';
 
 void main() => runApp(const ShoppingApp());

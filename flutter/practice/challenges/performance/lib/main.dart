@@ -1,3 +1,15 @@
+// Challenge: Performance — Product Catalog
+//
+// A catalog of 2 000 products with real-time search and category filtering,
+// sorted by price. Run and profile it with Flutter DevTools.
+//
+// Concepts in play: work in build(), lazy list rendering, conditional setState.
+//
+// Known issues (3 bugs):
+//   - Typing in the search box causes noticeable frame drops on every keystroke.
+//   - The initial render is slow — all items are built before the first frame appears.
+//   - Rebuilds are triggered even when neither the query nor the category changed.
+
 import 'package:flutter/material.dart';
 
 void main() => runApp(const CatalogApp());

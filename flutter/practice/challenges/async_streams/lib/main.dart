@@ -1,3 +1,17 @@
+// Challenge: Async & Streams — Live Feed
+//
+// An event feed that subscribes to a continuous stream of random events.
+// Each event can be archived individually or all at once via a simulated
+// async network call.
+//
+// Concepts in play: StreamSubscription lifecycle, await in try/catch,
+// parallel vs sequential async operations.
+//
+// Known issues (3 bugs):
+//   - Navigating back from the feed leaves errors printing in the console indefinitely.
+//   - Archiving a "Logout" event shows a success message instead of an error.
+//   - "Archive all" is far slower than it should be given the network latency.
+
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';

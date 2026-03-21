@@ -1,3 +1,16 @@
+// Challenge: State Management — Counter + History (Riverpod)
+//
+// A counter screen backed by Riverpod. Every increment and decrement is
+// recorded in a history log. A derived provider tracks double the count.
+//
+// Concepts in play: Notifier state immutability, ref.watch vs ref.read,
+// derived providers and reactive dependency tracking.
+//
+// Known issues (3 bugs):
+//   - Tapping the + button records nothing — the history list stays empty forever.
+//   - Tapping Decrement throws an exception instead of updating the counter.
+//   - The "Doubled" value is always 0 regardless of what the counter shows.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
