@@ -1,4 +1,4 @@
-// Build exercise: Stopwatch
+ // Build exercise: Stopwatch
 //
 // A stopwatch whose display is driven by a reactive data source —
 // not a setState loop or an AnimationController. The UI rebuilds

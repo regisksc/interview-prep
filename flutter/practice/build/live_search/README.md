@@ -1,6 +1,6 @@
 # Build: Live Search
 
-**Guide:** `FLUTTER_INTERVIEW_PREP.md` → Module 5 (Async & Streams)
+**Guide:** `README.md` → Module 5 (Async & Streams)
 
 ## What to build
 

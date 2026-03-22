@@ -1,6 +1,6 @@
 # Build: Todo List
 
-**Guide:** `FLUTTER_INTERVIEW_PREP.md` → Module 3 (State Management) + Module 5 (Async)
+**Guide:** `README.md` → Module 3 (State Management) + Module 5 (Async)
 
 ## What to build
 

@@ -1,6 +1,6 @@
 # Flutter Practice
 
-Companion practice material for `../FLUTTER_INTERVIEW_PREP.md`.
+Companion practice material for `../README.md`.
 
 ## Setup
 

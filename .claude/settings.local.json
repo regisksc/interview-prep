@@ -36,7 +36,20 @@
       "Bash(git add flutter/FLUTTER_INTERVIEW_PREP.md && git commit -m \"$\\(cat <<'EOF'\ndocs\\(module-5\\): clarify Completer with before/after callback bridge example\n\nCo-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>\nEOF\n\\)\" && git push)",
       "Bash(find /home/regis -name \"*system*\" -o -name \"*design*\" 2>/dev/null | grep -v \".git\" | grep -v \"node_modules\" | grep \".md\" | head -20)",
       "Bash(find /home/regis -path \"*/system-design*\" -name \"*.md\" 2>/dev/null | head -20)",
-      "Bash(find /home/regis -name \"system-design\" -type d 2>/dev/null; find /home/regis -path \"*system*design*\" 2>/dev/null | grep -v \".git\" | head -20)"
+      "Bash(find /home/regis -name \"system-design\" -type d 2>/dev/null; find /home/regis -path \"*system*design*\" 2>/dev/null | grep -v \".git\" | head -20)",
+      "Bash(find:*)",
+      "Bash(du:*)",
+      "Bash(which flutter:*)",
+      "Bash(cd:*)",
+      "Bash(ssh:*)",
+      "Bash(sudo apt:*)",
+      "Bash(for dir:*)",
+      "Bash(for challenge:*)",
+      "Bash(do echo:*)",
+      "Read(//home/regis/study/interview-prep/flutter/practice/challenges/$challenge/**)",
+      "Bash(done)",
+      "Bash(\\\\\n  # stopwatch → build/stopwatch\n  cp challenges/streams_stopwatch/lib/main.dart build/stopwatch/starter/lib/main.dart && \\\\\n  cp challenges/streams_stopwatch/analysis_options.yaml build/stopwatch/starter/ && \\\\\n  mv challenges/streams_stopwatch/SOLUTIONS.md build/stopwatch/SOLUTIONS.md && \\\\\n  rm -rf challenges/streams_stopwatch && \\\\\n  # rxdart_search → build/live_search\n  cp challenges/rxdart_search/lib/main.dart build/live_search/starter/lib/main.dart && \\\\\n  cp challenges/rxdart_search/analysis_options.yaml build/live_search/starter/ && \\\\\n  mv challenges/rxdart_search/SOLUTIONS.md build/live_search/SOLUTIONS.md && \\\\\n  rm -rf challenges/rxdart_search && \\\\\n  # riverpod_todos → build/todos\n  cp challenges/riverpod_todos/lib/main.dart build/todos/starter/lib/main.dart && \\\\\n  cp challenges/riverpod_todos/analysis_options.yaml build/todos/starter/ && \\\\\n  mv challenges/riverpod_todos/SOLUTIONS.md build/todos/SOLUTIONS.md && \\\\\n  rm -rf challenges/riverpod_todos && \\\\\n  echo \"done\")",
+      "Bash(cat:*)"
     ],
     "deny": [
       "Bash(rm -rf*)"
