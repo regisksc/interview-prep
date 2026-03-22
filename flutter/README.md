@@ -25,6 +25,19 @@
 
 ---
 
+## Lessons
+
+In-depth reference material beyond the module summaries.
+
+| File | What it covers |
+|------|---------------|
+| [lessons/state-management-comparison.md](lessons/state-management-comparison.md) | MobX · GetX · Provider+ValueNotifier · Riverpod · Bloc · RxDart — pros/cons, decision guide, real-world scenarios |
+| [state-management/riverpod.md](state-management/riverpod.md) | All 6 Riverpod provider types, ref.watch/read/listen, autoDispose, family, testing |
+| [state-management/bloc.md](state-management/bloc.md) | Cubit → full Bloc, sealed states, EventTransformer, bloc_concurrency, blocTest |
+| [state-management/rxdart.md](state-management/rxdart.md) | Subject types, key operators, canonical search pipeline, Riverpod integration |
+
+---
+
 ## Module 1: Dart Language Fundamentals
 
 > **Priority: CRITICAL.** Flutter is Dart. If you stumble on Dart basics, nothing else matters.
@@ -382,6 +395,8 @@ Key widgets:
 ## Module 3: State Management
 
 > **Priority: CRITICAL.** This is where senior vs mid engineers are separated.
+>
+> **Deep dive:** [lessons/state-management-comparison.md](../lessons/state-management-comparison.md) — full comparison of MobX, GetX, Provider, Riverpod, Bloc, and RxDart with decision guide and real-world scenarios.
 
 ---
 
