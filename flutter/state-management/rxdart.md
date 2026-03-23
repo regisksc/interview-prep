@@ -4,369 +4,267 @@
 
 ---
 
-## Start here
+## What is ReactiveX?
 
-If Riverpod answers, "Where does app state live?", RxDart answers, "How do I transform a stream of events over time?"
+ReactiveX is a model for composing asynchronous event streams using functional operators. RxDart extends Dart's native `Stream` with:
 
-RxDart is not a replacement for Riverpod or Bloc. It is a **stream toolkit**.
-
-Use it when the hard part of the feature is not storing state, but handling event flow:
-
-- debounce user input
-- cancel stale requests
-- merge multiple live sources
-- accumulate values over time
-
-If Bloc is already familiar to you, the closest bridge is this:
-
-- `restartable()` in Bloc feels like `switchMap`
-- `droppable()` feels like "ignore while busy"
-- RxDart just gives you those stream ideas directly
+- **Subjects** — `StreamController`s that cache and replay values
+- **Operators** — `debounceTime`, `switchMap`, `combineLatest`, and more
+- **`ValueStream`** — streams that always have a synchronously accessible current value
 
 ```yaml
 dependencies:
   rxdart: ^0.28.0
 ```
 
----
-
-## The normal feature flow
-
-This is the usual way an RxDart feature gets built:
-
-1. Identify the input stream.
-2. Choose the right subject or source.
-3. Build one pipeline from that input.
-4. Keep the pipeline outside `build()`.
-5. Render the output stream with `StreamBuilder`, Riverpod, or Bloc.
-6. Close subjects in `dispose()`.
-
-Typical examples:
-
-- live search
-- autocomplete
-- form validation from multiple fields
-- stopwatch/timer pipelines
-- live filters from multiple controls
-
-If the feature is simple "load once, render once", RxDart is usually unnecessary.
-
----
-
-## Mental model
-
-Think in three parts:
-
-- **input**: events going in
-- **pipeline**: operators transforming those events
-- **output**: the stream the UI or state layer consumes
-
-For search:
-
-- input: text changes
-- pipeline: `distinct` -> `debounceTime` -> `switchMap`
-- output: latest search results
-
-That is the heart of RxDart.
+RxDart is not a replacement for Riverpod — it is a toolkit for building reactive pipelines that can feed into Riverpod via `StreamProvider`, or be consumed directly with `StreamBuilder`.
 
 ---
 
 ## Subjects
 
-A `Subject` is both:
+A `Subject` is simultaneously a `StreamController` (you push values into it) and a `Stream` (you listen to it).
 
-- a place you can push values into
-- a stream you can listen to
-
-### `PublishSubject`
-
-No replay. New listeners only get future events.
+### `PublishSubject` — no replay
 
 ```dart
 final subject = PublishSubject<String>();
-subject.add('hello');
+
+subject.stream.listen(print);
+
+subject.add('hello'); // prints: hello
+subject.add('world'); // prints: world
+
+// Late subscriber misses previous values:
+subject.stream.listen(print); // nothing until next add()
+
+subject.close(); // always close in dispose()
+```
+
+### `BehaviorSubject` — replays the latest value
+
+```dart
+final subject = BehaviorSubject<String>.seeded('initial');
+
+subject.add('updated');
+
+// New subscriber immediately gets 'updated':
+subject.stream.listen(print); // prints: updated immediately
+
+print(subject.value); // 'updated' — synchronous access to latest value
+```
+
+Use `BehaviorSubject` for search queries, form fields, and anything where a new subscriber needs the current value immediately.
+
+### `ReplaySubject` — replays the last N values
+
+```dart
+final subject = ReplaySubject<int>(maxSize: 3);
+subject.add(1);
+subject.add(2);
+subject.add(3);
+subject.add(4);
+
+// New subscriber gets 2, 3, 4 (the last 3):
 subject.stream.listen(print);
 ```
 
-Use for:
-
-- button clicks
-- one-off events
-- navigation triggers
-
-### `BehaviorSubject`
-
-Replays the latest value to new listeners.
-
-```dart
-final query = BehaviorSubject<String>.seeded('');
-query.add('riverpod');
-print(query.value);
-```
-
-Use for:
-
-- search query
-- current filter
-- form field state
-- any stream where the latest value matters immediately
-
-This is the subject beginners usually need most.
-
-### `ReplaySubject`
-
-Replays the last `n` values.
-
-```dart
-final history = ReplaySubject<int>(maxSize: 3);
-```
-
-Use for:
-
-- short history
-- undo-like flows
-- debugging recent events
-
-| Subject | New subscriber gets | Has current value |
-|---------|---------------------|-------------------|
-| `PublishSubject` | nothing old | no |
-| `BehaviorSubject` | latest value | yes |
-| `ReplaySubject` | recent history | no |
+| Subject | New subscriber receives | Synchronous `.value` | Use for |
+|---------|------------------------|----------------------|---------|
+| `PublishSubject` | Nothing | No | Click events, navigation triggers |
+| `BehaviorSubject` | Latest value | Yes | Search query, current user, form fields |
+| `ReplaySubject(n)` | Last n values | No | Undo history, recent events |
 
 ---
 
-## The operators you should know first
+## Key operators
 
-### `debounceTime`
-
-Wait for input to settle.
+### `debounceTime` — wait for input to settle
 
 ```dart
-query.stream
+subject.stream
     .debounceTime(const Duration(milliseconds: 300))
     .listen(print);
+
+subject.add('h');
+subject.add('he');
+subject.add('hel');
+// 300 ms of silence...
+// prints: hel  (only the last value after the gap)
 ```
 
-Use for:
-
-- typing
-- sliders
-- noisy repeated input
-
-### `distinct`
-
-Skip consecutive duplicates.
+### `distinct` — skip consecutive duplicate values
 
 ```dart
-query.stream
+subject.stream
     .distinct()
     .listen(print);
+
+subject.add('a'); // prints: a
+subject.add('a'); // skipped
+subject.add('b'); // prints: b
 ```
 
-Use before `debounceTime` in search-like pipelines.
+Always put `distinct()` **before** `debounceTime`. Placing it after wastes a timer cycle on a value that hasn't changed.
 
-### `switchMap`
-
-Cancel the previous async work when a new value arrives.
+### `switchMap` — cancel previous, start new
 
 ```dart
-final results = query.stream
+final results = querySubject.stream
     .distinct()
     .debounceTime(const Duration(milliseconds: 300))
-    .switchMap((text) => Stream.fromFuture(search(text)));
+    .switchMap((query) => Stream.fromFuture(search(query)));
 ```
 
-This is the most important RxDart operator for app work.
+When a new outer value arrives, `switchMap` unsubscribes from the previous inner stream and subscribes to a new one. Only the latest operation's result is emitted.
 
-If query `abc` starts, then query `abcd` starts, `switchMap` throws away the old one and keeps the latest.
+**vs `flatMap` (`asyncExpand`):** `flatMap` merges all inner streams concurrently. If query A takes 1 s and query B takes 0.1 s, B's results arrive first but A's arrive later and overwrite them. `switchMap` cancels A the moment B starts — stale results are impossible.
 
-### `combineLatest`
-
-Recompute when any source changes.
+### `combineLatest` — emit when any source changes
 
 ```dart
 final isValid = Rx.combineLatest2(
-  username.stream,
-  password.stream,
+  usernameSubject.stream,
+  passwordSubject.stream,
   (String u, String p) => u.isNotEmpty && p.length >= 8,
 );
+
+isValid.listen((valid) => setState(() => _isValid = valid));
 ```
 
-Great for:
+Emits whenever **any** source emits a new value, using the latest value from all others. Unlike `zip`, it does not wait for all sources to emit a new matching event.
 
-- multi-field forms
-- filters
-- combining user/session/config streams
-
-### `scan`
-
-Accumulate over time while still emitting intermediate values.
+### `zip` — pair elements one-to-one
 
 ```dart
-numbers.stream
-    .scan<int>((sum, value, _) => sum + value, 0)
-    .listen(print);
+final zipped = Rx.zip2(
+  Stream.fromIterable([1, 2, 3]),
+  Stream.fromIterable(['a', 'b', 'c']),
+  (int n, String s) => '$n$s',
+);
+// emits: '1a', '2b', '3c'
 ```
 
-Good for:
+Waits for both streams to produce a matching element before emitting. Slower stream controls the pace.
 
-- totals
-- histories
-- state built from event sequences
+### `scan` — accumulate over time
+
+```dart
+subject.stream
+    .scan<int>((acc, val, _) => acc + val, 0)
+    .listen(print);
+
+subject.add(1); // prints: 1
+subject.add(2); // prints: 3
+subject.add(3); // prints: 6
+```
+
+Like `reduce` but emits each intermediate result. Useful for running totals, undo history, and accumulated state.
 
 ---
 
-## The most common real-world example: search
+## The canonical reactive search pattern
 
 ```dart
 class _SearchScreenState extends State<SearchScreen> {
+  // Input sink
   final _query = BehaviorSubject<String>.seeded('');
 
+  // Pipeline — built once as a field, never inside build()
   late final Stream<List<String>?> _results = _query.stream
       .distinct()
       .debounceTime(const Duration(milliseconds: 300))
-      .switchMap(
-        (text) => text.isEmpty
-            ? Stream.value(null)
-            : Stream.fromFuture(search(text)),
-      );
+      .switchMap((q) => q.isEmpty
+          ? Stream.value(null)          // null → idle state
+          : Stream.fromFuture(search(q)));
 
   @override
   void dispose() {
-    _query.close();
+    _query.close(); // leaks a stream if omitted
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        TextField(onChanged: _query.add),
-        Expanded(
-          child: StreamBuilder<List<String>?>(
-            stream: _results,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const CircularProgressIndicator();
-              }
-              if (snapshot.data == null) return const Text('Start typing...');
-              final items = snapshot.data!;
-              if (items.isEmpty) return const Text('No results');
-              return ListView(
-                children: [
-                  for (final item in items) ListTile(title: Text(item)),
-                ],
-              );
-            },
-          ),
+    return Column(children: [
+      TextField(onChanged: _query.add),
+      Expanded(
+        child: StreamBuilder<List<String>?>(
+          stream: _results,
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Text('Start typing...');
+            }
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const CircularProgressIndicator();
+            }
+            final items = snapshot.data!;
+            if (items.isEmpty) return const Text('No results');
+            return ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (_, i) => ListTile(title: Text(items[i])),
+            );
+          },
         ),
-      ],
-    );
+      ),
+    ]);
   }
 }
 ```
 
-Why this shape matters:
-
-- `BehaviorSubject` stores the current query
-- `distinct` avoids duplicate work
-- `debounceTime` waits for typing to pause
-- `switchMap` cancels stale searches
-- `_results` is built once, not on every widget rebuild
-- `null` is used here as an explicit idle state for "no active query"
+`_results` is `late final` — built once and reused across rebuilds. If you build the pipeline inside `build()`, a new stream is created on every frame, breaking debounce and creating multiple subscriptions.
 
 ---
 
-## Riverpod and RxDart together
+## Integrating with Riverpod
 
-A good rule:
-
-- Riverpod manages feature state and dependency flow
-- RxDart manages event pipelines when streams get tricky
-
-Example:
+RxDart pipelines compose cleanly with Riverpod's `StreamProvider`:
 
 ```dart
-final searchQueryProvider = Provider<BehaviorSubject<String>>((ref) {
-  final subject = BehaviorSubject<String>.seeded('');
-  ref.onDispose(subject.close);
-  return subject;
-});
+// Expose a Subject's pipeline as a Riverpod provider
+final _querySubject = BehaviorSubject<String>.seeded('');
 
-final searchResultsProvider = StreamProvider<List<String>?>((ref) {
-  final query = ref.watch(searchQueryProvider);
-
-  return query.stream
+final searchResultsProvider = Provider<Stream<List<String>?>>((ref) {
+  return _querySubject.stream
       .distinct()
       .debounceTime(const Duration(milliseconds: 300))
-      .switchMap(
-        (text) => text.isEmpty
-            ? Stream.value(null)
-            : Stream.fromFuture(search(text)),
-      );
+      .switchMap((q) => q.isEmpty
+          ? Stream.value(null)
+          : Stream.fromFuture(search(q)));
 });
+
+// In a widget:
+final resultsStream = ref.watch(searchResultsProvider);
+return StreamBuilder<List<String>?>(stream: resultsStream, builder: ...);
 ```
 
-This is a clean pairing when:
-
-- the event flow is Rx-heavy
-- the app still wants Riverpod for the public state API
-
 ---
 
-## Bloc and RxDart together
-
-If you know Bloc already, RxDart often helps you reason about Bloc concurrency:
-
-- latest request wins -> `switchMap` -> `restartable()`
-- ignore new events while busy -> droppable behavior
-- queue work in order -> sequential behavior
-
-You do not always need RxDart in a Bloc app, but understanding Rx semantics makes async Bloc much easier to reason about.
-
----
-
-## Common beginner mistakes
+## Common mistakes
 
 | Mistake | Symptom | Fix |
 |---------|---------|-----|
-| Building the pipeline inside `build()` | duplicate subscriptions, debounce breaks | create it once as a field |
-| Forgetting to close a subject | leaks and updates after dispose | close it in `dispose()` |
-| Using `flatMap` when latest should win | stale results appear late | use `switchMap` |
-| Using RxDart for simple one-shot fetches | unnecessary complexity | use Riverpod/Bloc/Future first |
-| Putting `distinct` after `debounceTime` | repeated identical input still resets timer | put `distinct` first |
-
----
-
-## When to reach for RxDart
-
-Reach for it when the hard part is:
-
-- timing
-- cancellation
-- combining streams
-- shaping event flow
-
-Do not reach for it just because a feature is async.
-
-Use it when you think:
-
-- "only the latest search result should matter"
-- "this input should wait until typing stops"
-- "this value depends on multiple live sources"
+| Building pipeline inside `build()` | New subscription every frame, debounce never fires | `late final` field |
+| `flatMap` instead of `switchMap` | Stale results overwrite fresh ones | Use `switchMap` |
+| Not closing subject in `dispose` | Stream leak, `setState after dispose` errors | `_subject.close()` in `dispose` |
+| `distinct()` after `debounceTime` | Debounce resets on repeated same value | `distinct()` before `debounceTime` |
+| Forgetting `Stream.value(null)` for empty query | Idle state shows last results | Emit `null` explicitly for idle |
 
 ---
 
 ## Interview Q&A
 
-**Q: What is the difference between `switchMap` and `flatMap`?**  
-`switchMap` keeps only the latest async work. `flatMap` lets multiple inner streams run at once.
+**Q: What is the difference between `switchMap` and `flatMap`?**
+`flatMap` (`asyncExpand`) merges all inner streams concurrently — results arrive in completion order, so a slow earlier query can overwrite a fast recent one. `switchMap` cancels the previous inner stream when a new outer value arrives — only the latest result is ever emitted. For search, `switchMap` is always correct.
 
-**Q: Why is `BehaviorSubject` so common in UI work?**  
-Because new listeners often need the latest value immediately.
+**Q: When would you use `BehaviorSubject` over `PublishSubject`?**
+`BehaviorSubject` when the latest value must be immediately available to new subscribers — form fields, search queries, current user state. `PublishSubject` when you only care about future events and history is irrelevant — button clicks, navigation events.
 
-**Q: What is the easiest way to misuse RxDart in Flutter?**  
-Creating pipelines inside widget `build()` and forgetting to close subjects.
+**Q: What happens if you forget to close a `Subject`?**
+The underlying `StreamController` is never closed. Any subscription listening to it is never cancelled. If the listening widget is disposed, `setState` is called on a dead `State` — the same class of bug as forgetting `StreamSubscription.cancel()`.
 
-**Q: Is RxDart a state management solution by itself?**  
-No. It is a stream composition toolkit that usually complements Riverpod or Bloc.
+**Q: Why does operator order matter for `distinct()` and `debounceTime`?**
+`distinct()` before `debounceTime` means a repeated value is dropped before it ever reaches the timer — the debounce clock is not reset. After `debounceTime`, the timer fires for the repeated value and then `distinct` drops the result silently. The first ordering is more correct and slightly more efficient.
+
+**Q: How does `scan` differ from `reduce`?**
+`reduce` accumulates and emits only a single final value when the stream closes. `scan` emits each intermediate accumulated value as events arrive — the stream never needs to close to be useful. `scan` is the right tool for live totals, running histories, and any state that evolves continuously.
