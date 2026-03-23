@@ -4,6 +4,56 @@ Six options, one codebase, one job to do. This is the map for choosing between t
 
 ---
 
+## Start here
+
+If you are building Flutter features and want a practical default:
+
+- local widget-only state -> `setState` or `ValueNotifier`
+- app/feature state -> Riverpod
+- auditable workflows or event-heavy flows -> Cubit/Bloc
+- event pipelines like debounce/cancel/combine -> RxDart on top
+
+That is the shortest honest answer.
+
+---
+
+## The normal feature-building flow
+
+Most Flutter features follow this path:
+
+1. Decide whether the state is local to one widget or shared by a feature.
+2. Decide whether the feature is sync, async, or stream-based.
+3. Choose the state owner.
+4. Keep UI focused on rendering and callbacks.
+5. Move derived values out of the widget when they start getting noisy.
+
+In practice:
+
+- `setState` if only one widget cares
+- Riverpod if the feature owns data and mutations
+- Cubit/Bloc if transitions need stronger structure or auditability
+- RxDart if the tricky part is the event pipeline itself
+
+---
+
+## Quick decision ladder
+
+```
+Is this only local widget state?
+  → setState or ValueNotifier
+
+Is this a normal production feature with data loading and mutations?
+  → Riverpod
+
+Do you want explicit state transitions and possibly an event log?
+  → Cubit / Bloc
+
+Do you need debounce, cancellation, or multi-stream composition?
+  → Add RxDart
+```
+
+---
+
 ## The landscape
 
 | | MobX | GetX | Provider + ValueNotifier | Riverpod | Bloc / Cubit | RxDart |
@@ -16,7 +66,7 @@ Six options, one codebase, one job to do. This is the map for choosing between t
 | **Testability** | Good | Poor | Moderate | Excellent | Excellent | Good |
 | **Boilerplate** | Low (codegen) | Very low | Low | Low–Medium | Medium–High | Medium |
 | **Learning curve** | Medium | Low | Low | Medium | Medium–High | High |
-| **Flutter team endorsed** | No | No | Yes (deprecated) | Yes | Yes | No |
+| **Official / community status** | Community | Community | Official Flutter-adjacent | Community, widely recommended | Community, widely used | Community |
 
 ---
 
@@ -154,7 +204,7 @@ context.read<CartModel>().add(item)
 
 ### Riverpod
 
-Riverpod replaces `InheritedWidget` with a global registry of compile-time constants. Providers are declared at the top level; `ref` gives access anywhere without `BuildContext`.
+Riverpod replaces `InheritedWidget` with top-level provider declarations. Providers are declared once and accessed through `ref`, so business logic does not depend on `BuildContext`.
 
 ```dart
 // Providers are top-level constants — no context needed
@@ -183,7 +233,7 @@ final container = ProviderContainer(overrides: [
 **Pros**
 - No `BuildContext` needed in business logic
 - `AsyncValue<T>` handles loading/error/data without a single `if`
-- Compile-time safety: missing providers are caught before runtime
+- Strong static typing and refactor-friendly provider references
 - `autoDispose` and `family` make scoped, parameterised state first-class
 - Also acts as a DI container — replaces `get_it` for most apps
 - `ProviderContainer` enables pure Dart unit tests without pumping a widget
@@ -233,7 +283,7 @@ on<SearchRequested>(_onSearch, transformer: restartable()); // switchMap semanti
 
 **Cons**
 - More boilerplate than Riverpod for equivalent functionality — each feature needs an event file, a state file, and a bloc file
-- No built-in DI — still needs `get_it` or `Riverpod` to inject repositories
+- No full standalone DI framework — usually paired with constructor injection, `RepositoryProvider`, or another DI approach
 - `emit` after `await` when a Bloc is closed crashes unless you guard with `!isClosed` or use `Emitter.forEach`
 - Overkill for simple state that Cubit or Riverpod would handle in five lines
 
@@ -314,6 +364,33 @@ Do you have complex UI with many derived, interdependent values?
 Do you have real-time streams, search-as-you-type, or multi-source composition?
   → Add RxDart on top of your state layer. It is a complement, not a replacement.
 ```
+
+---
+
+## Feature examples
+
+### Todo list
+
+- one screen, async load, add/toggle/delete, derived filters
+- best default: Riverpod
+- Bloc/Cubit is also good if you want stronger explicit transitions
+
+### Login form
+
+- local form fields, async submit, auth state
+- local input state can stay widget-local
+- feature/auth session state fits Riverpod or Cubit
+
+### Search-as-you-type
+
+- user input timing matters
+- you need debounce and stale-request cancellation
+- Riverpod or Bloc for app structure, RxDart for the event pipeline
+
+### Animation toggle or accordion
+
+- widget-local only
+- `setState` or `ValueNotifier`
 
 ---
 

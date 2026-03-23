@@ -4,6 +4,44 @@
 
 ---
 
+## Start here
+
+If Riverpod feels like "declare a provider and expose logic through it", Bloc feels like "drive the feature through explicit state transitions."
+
+Since you already know Bloc better than Riverpod, use it as the reference point:
+
+- **Cubit**: class with methods that `emit(...)`
+- **Bloc**: event-driven version of that same idea
+- **BlocProvider**: widget-tree dependency injection
+- **BlocBuilder**: rebuild from state
+- **BlocListener**: side-effects from state changes
+
+For most app features, start with **Cubit**. Move to full **Bloc** only when you need event transformers, explicit event logs, or more formal workflow modeling.
+
+---
+
+## The normal feature flow
+
+This is the usual way a Bloc feature gets built:
+
+1. Define the feature state.
+2. Decide whether Cubit is enough.
+3. Create the Cubit/Bloc class.
+4. Add feature methods or event handlers.
+5. Provide it above the screen.
+6. Render state with `BlocBuilder`.
+7. Trigger side-effects with `BlocListener`.
+
+For a todo feature with Cubit:
+
+1. State: loading, data, maybe error
+2. Cubit: load todos, add, toggle, delete
+3. `BlocProvider(create: ...)`
+4. `BlocBuilder<TodoCubit, TodoState>`
+5. UI buttons call cubit methods
+
+---
+
 ## Why Bloc?
 
 Riverpod handles most apps well. Bloc earns its extra complexity when you need:
@@ -40,6 +78,11 @@ class CounterCubit extends Cubit<CounterState> {
 ```
 
 `emit` is the only way to change state. The new state is broadcast to all `BlocBuilder`s watching this Cubit.
+
+Think of Cubit as the closest Bloc equivalent to a Riverpod notifier:
+
+- Riverpod `state = ...`
+- Cubit `emit(...)`
 
 ---
 
@@ -87,6 +130,8 @@ Use full Bloc (not Cubit) when:
 - A single user action can produce different state transitions depending on context
 - You need event transformers (debounce, cancel, queue)
 - You need a full audit log of every action
+
+If your feature mainly responds to direct method calls like `addTodo()` or `toggleTodo()`, Cubit is usually enough.
 
 ### Sealed state hierarchy
 
@@ -187,6 +232,26 @@ on<SaveRequested>(_onSave, transformer: sequential());
 ```
 
 `restartable()` is the Bloc equivalent of RxDart's `switchMap` — the correct choice for search-as-you-type.
+
+---
+
+## Riverpod-to-Bloc translation
+
+If you are learning Riverpod and want a bridge:
+
+| Riverpod | Bloc / Cubit |
+|----------|---------------|
+| provider | `BlocProvider` |
+| notifier/controller | `Cubit` / `Bloc` |
+| `state = newValue` | `emit(newValue)` |
+| `ref.watch(...)` | `BlocBuilder` |
+| `ref.read(...notifier)` | `context.read<MyCubit>()` |
+| derived provider | selector / computed state / separate cubit |
+
+Big difference:
+
+- Riverpod declares providers at the top level
+- Bloc usually injects state objects through the widget tree
 
 ---
 
