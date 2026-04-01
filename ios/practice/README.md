@@ -1,14 +1,30 @@
 # iOS Practice
 
-Companion practice material for `../README.md`.
+Companion practice material for [`../README.md`](../README.md).
 
 ## Setup
 
 ```bash
-# No dependencies needed for most exercises
-# Some challenges may require Xcode Command Line Tools
 xcode-select --install
 ```
+
+---
+
+## apps/ — Progressive projects (primary practice path)
+
+Each app starts from a **pre-built starter** and evolves through **step-by-step exercises**. One concept per step, each linked to a lesson section. Every step includes an **LLM Review** rubric so you can get feedback without spoilers.
+
+| App | Concepts | Steps |
+|-----|----------|------:|
+| [01 — Mood Tracker](apps/01-mood-tracker/README.md) | All SwiftUI state wrappers | 7 |
+| [02 — Recipe Book](apps/02-recipe-book/README.md) | Layout + modifiers | 7 |
+| [03 — Weather Cards](apps/03-weather-cards/README.md) | Animation + gestures | 6 |
+| [04 — Contacts](apps/04-contacts/README.md) | Lists + navigation | 7 |
+| [05 — News Reader](apps/05-news-reader/README.md) | Async, Combine, UIKit interop, testing | 7 |
+
+**Full map:** [lessons/lesson-practice-map.md](../lessons/lesson-practice-map.md)
+
+**Where to work:** copy starter files into a local Xcode project under [`swift-drills/`](../../swift-drills/) (git-ignored).
 
 ---
 
@@ -24,16 +40,11 @@ Each challenge has **3 intentional runtime bugs**. The code compiles and looks n
 | `combine_memory/` | Cancellable storage, retain cycles | Module 3, 5 |
 | `performance/` | Work in body, unnecessary updates | Module 7 |
 
-```bash
-# Open in Xcode and run
-open challenges/swift_fundamentals/SwiftFundamentals.xcodeproj
-```
-
 ---
 
 ## build/ — Implement from Scratch
 
-Each exercise provides a domain, required behaviors, and a minimal UI shell. Pick your own state management approach.
+Each exercise provides a domain, required behaviors, and a minimal UI shell.
 
 | Exercise | Domain | Key Behaviors |
 |----------|--------|---------------|
@@ -42,29 +53,19 @@ Each exercise provides a domain, required behaviors, and a minimal UI shell. Pic
 | `todos/` | Todo list | Async load, add, toggle, delete, filter |
 | `timer/` | Stopwatch | Reactive tick, pause/resume, no leaks |
 
-```bash
-# Start from template
-open build/todos/starter/Todos.xcodeproj
-```
-
 ---
 
-## drills/ — Small Focused Exercises
+## drills/ — Quick standalone exercises
 
-Short exercises each targeting one Swift or iOS concept.
+Short exercises targeting one concept each. Useful for targeted reps alongside the apps.
 
-| Category | Done / Planned | Format |
-|----------|----------------|--------|
-| `extensions/` | 20 / 80 | Swift file |
-| `swift-files/` | 0 / 80 | Swift file |
-| `uikit/` | 0 / 80 | Xcode project |
-| `swiftui/` | 0 / 80 | Xcode project |
+| Category | Count | Format |
+|----------|-------|--------|
+| `extensions/` | 20 | Swift file |
+| `swift-files/` | 20 | Swift file |
+| `uikit/` | 20 | Xcode project |
+| `swiftui/` | Starters 1–5 + specs 6–60 | [drills README](drills/swiftui/README.md) |
 | `multiple-choice/` | 50 questions | Read & answer |
-
-```bash
-# Run Swift drills
-cd drills/extensions/001-string-extension && swift run
-```
 
 ---
 

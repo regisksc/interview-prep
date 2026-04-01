@@ -4,6 +4,17 @@ Focused exercises for mastering specific SwiftUI concepts.
 
 ---
 
+## Maps & isolated projects
+
+| Resource | Purpose |
+|----------|---------|
+| [Lesson ↔ drill ↔ folder index](../../../lessons/lesson-practice-map.md) | Which lesson section pairs with which drill number |
+| [Per-drill Xcode folders](../../projects/swiftui/README.md) | One project directory per drill (`001-…` through `010-…` for state track) |
+
+Drills **1–5** have checked-in **starter** `.swift` files in this folder. Drills **6–10** use the written specs below until starters are added. **Put your Xcode project in the matching folder** under `practice/projects/swiftui/` so each drill stays separate.
+
+---
+
 ## State Management Drills (1-10)
 
 ### Drill 1: @State Basics

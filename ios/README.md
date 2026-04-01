@@ -27,45 +27,38 @@
 
 ## SwiftUI Focus Track
 
-If SwiftUI is your primary focus (recommended for modern iOS roles), follow this accelerated path:
+If SwiftUI is your primary focus (recommended for modern iOS roles), follow this accelerated path. **Full map:** [lessons/lesson-practice-map.md](lessons/lesson-practice-map.md).
 
-| Week | Focus | Resources | Practice |
-|------|-------|-----------|----------|
-| 1 | Swift fundamentals + @State/@Binding | Module 1, 2 | Drills 1-10 |
-| 2 | State management deep dive | Module 3, [SwiftUI State](lessons/swiftui-state.md) | Drills 11-30 |
-| 3 | Layout + Navigation | Module 2, 6 | Challenges 1-5, 11-12 |
-| 4 | Async/await + API integration | Module 5 | Challenges 6, 12 |
-| 5 | Animations + Gestures | [Advanced Patterns](lessons/swiftui-advanced.md) | Drills 31-50 |
-| 6 | Performance + Testing | Module 7, 8 | Challenges 13-15 |
-| 7 | Advanced patterns | [Advanced Patterns](lessons/swiftui-advanced.md) | Challenges 16-20 |
-| 8 | Interview prep | [Interview Questions](lessons/swiftui-interview-questions.md) | Mock interviews |
+Practice is **8 progressive apps** with increasing difficulty (★☆☆ → ★★★). Each starts from a pre-built starter, evolves step-by-step, and includes LLM-reviewable rubrics. See [practice/apps/](practice/apps/README.md).
 
----
-
-## Lessons
-
-In-depth reference material beyond the module summaries.
-
-| File | What it covers |
-|------|---------------|
-| [lessons/state-management-comparison.md](lessons/state-management-comparison.md) | Observable · @Published · Redux · MVVM — pros/cons, decision guide |
-| [lessons/swiftui-state.md](lessons/swiftui-state.md) | @State, @Binding, @ObservedObject, @StateObject, @EnvironmentObject — complete guide |
-| [lessons/combine-framework.md](lessons/combine-framework.md) | Publishers, subscribers, operators, backpressure, UIKit integration |
-| [lessons/swiftui-advanced.md](lessons/swiftui-advanced.md) | Custom modifiers, Environment, Layout, Animations, Performance, Testing |
-| [lessons/swiftui-troubleshooting.md](lessons/swiftui-troubleshooting.md) | Common issues, error messages, debugging tips |
-| [lessons/swiftui-interview-questions.md](lessons/swiftui-interview-questions.md) | 33+ interview questions from basics to advanced |
+| Week | Focus | Lessons | App (difficulty) |
+|------|-------|---------|-----------------|
+| 1 | Swift fundamentals + local state | Module 1–2 · [swiftui-state](lessons/swiftui-state.md) | [**01 Mood Tracker**](practice/apps/01-mood-tracker/README.md) ★☆☆ steps 1–4 |
+| 2 | Shared state, environment | [swiftui-state](lessons/swiftui-state.md) (continued) | **01 Mood Tracker** steps 5–7 |
+| 3 | Layout, grids, modifiers | [swiftui-advanced](lessons/swiftui-advanced.md) (layout, modifiers) | [**02 Recipe Book**](practice/apps/02-recipe-book/README.md) ★☆☆ |
+| 4 | Animation, gestures | [swiftui-advanced](lessons/swiftui-advanced.md) (animation) | [**03 Weather Cards**](practice/apps/03-weather-cards/README.md) ★★☆ |
+| 5 | Lists, navigation, sheets | Module 6 · [troubleshooting](lessons/swiftui-troubleshooting.md) | [**04 Contacts**](practice/apps/04-contacts/README.md) ★★☆ |
+| 6 | @Observable, Combine | [state-management-comparison](lessons/state-management-comparison.md) · [combine](lessons/combine-framework.md) | [**05 Habit Tracker**](practice/apps/05-habit-tracker/README.md) ★★☆ |
+| 7 | Async, networking, UIKit interop | [combine](lessons/combine-framework.md) · Module 5, 7 | [**06 News Reader**](practice/apps/06-news-reader/README.md) ★★★ |
+| 8 | Charts, SwiftData, persistence | [swiftui-advanced](lessons/swiftui-advanced.md) · Module 7, 9 | [**07 Expense Tracker**](practice/apps/07-expense-tracker/README.md) ★★★ |
+| 9 | Architecture, testing | Module 4, 5, 8 | [**08 Mini Social**](practice/apps/08-mini-social/README.md) ★★★ |
+| 10 | Interview prep | [interview-questions](lessons/swiftui-interview-questions.md) · [troubleshooting](lessons/swiftui-troubleshooting.md) | Mock interviews; revisit weak apps |
 
 ---
 
 ## Lessons
 
-In-depth reference material beyond the module summaries.
+In-depth reference material beyond the module summaries. Each file lists **contents** at the top (and [swiftui-state](lessons/swiftui-state.md) / [swiftui-advanced](lessons/swiftui-advanced.md) link drills and project folders).
 
 | File | What it covers |
 |------|---------------|
-| [lessons/state-management-comparison.md](lessons/state-management-comparison.md) | Observable · @Published · Redux · MVVM — pros/cons, decision guide, real-world scenarios |
-| [lessons/swiftui-state.md](lessons/swiftui-state.md) | @State, @Binding, @ObservedObject, @StateObject, @EnvironmentObject — when to use which |
-| [lessons/combine-framework.md](lessons/combine-framework.md) | Publishers, subscribers, operators, backpressure, UIKit integration |
+| [lessons/lesson-practice-map.md](lessons/lesson-practice-map.md) | **Index:** lesson sections ↔ 8 practice apps ↔ 52 steps |
+| [lessons/state-management-comparison.md](lessons/state-management-comparison.md) | Observable · @Published · Redux · MVVM — pros/cons, decision guide, scenarios |
+| [lessons/swiftui-state.md](lessons/swiftui-state.md) | @State through @SceneStorage — table of contents + practice column |
+| [lessons/combine-framework.md](lessons/combine-framework.md) | Publishers, operators, SwiftUI integration, memory |
+| [lessons/swiftui-advanced.md](lessons/swiftui-advanced.md) | Modifiers, environment, layout, animation, performance, UIKit interop, testing |
+| [lessons/swiftui-troubleshooting.md](lessons/swiftui-troubleshooting.md) | Symptoms → fixes (state, layout, lists, performance, async) |
+| [lessons/swiftui-interview-questions.md](lessons/swiftui-interview-questions.md) | Questions by level + scenarios |
 
 ---
 
