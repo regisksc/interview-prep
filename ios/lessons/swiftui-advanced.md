@@ -6,14 +6,28 @@ Deep dive into advanced SwiftUI techniques for senior-level interviews.
 
 ## Table of Contents
 
-1. [Custom ViewModifiers](#custom-viewmodifiers)
-2. [Environment & Preferences](#environment--preferences)
-3. [Custom Layout](#custom-layout)
-4. [Advanced Animations](#advanced-animations)
-5. [Performance Optimization](#performance-optimization)
-6. [Interop with UIKit](#interop-with-uikit)
-7. [Testing SwiftUI](#testing-swiftui)
-8. [Architecture Patterns](#architecture-patterns)
+| Chapter | In this doc | SwiftUI drills (see [lesson-practice-map](lesson-practice-map.md)) |
+|--------|-------------|---------------------------------------------------------------------|
+| **Custom ViewModifiers** | [§](#custom-viewmodifiers) | Drills **21–23**, **30** (modifiers) |
+| **Environment & Preferences** | [§](#environment--preferences) | Drills **51–52** (custom env, PreferenceKey) · cross-ref [swiftui-state](swiftui-state.md#environmentobject--shared-across-hierarchy) |
+| **Custom Layout** | [§](#custom-layout) | Drills **11–20** (layout track) |
+| **Advanced Animations** | [§](#advanced-animations) | Drills **31–40** |
+| **Performance Optimization** | [§](#performance-optimization) | Drills **17** (lazy stacks), **7** (performance challenge) · Module 7 |
+| **Interop with UIKit** | [§](#interop-with-uikit) | Drill **53** · `coding-challenges/ui-kit/` |
+| **Testing SwiftUI** | [§](#testing-swiftui) | Module 8 · `coding-challenges/testing/` |
+| **Architecture Patterns** | [§](#architecture-patterns) | [state-management-comparison.md](state-management-comparison.md) · Module 4 |
+| **Interview Questions** | [§](#interview-questions) | [swiftui-interview-questions.md](swiftui-interview-questions.md) |
+
+**Subsections**
+
+- **Custom ViewModifiers** — [Creating reusable modifiers](#creating-reusable-modifiers) · [Conditional modifiers](#conditional-modifiers) · [Modifier composition](#modifier-composition)
+- **Environment & Preferences** — [Custom environment values](#custom-environment-values) · [EnvironmentObject for DI](#environmentobject-for-dependency-injection) · [PreferenceKey](#preferencekey-for-child-to-parent-communication)
+- **Custom Layout** — [LayoutProtocol](#layoutprotocol-ios-16) · [GeometryReader](#geometryreader-for-custom-layouts)
+- **Advanced Animations** — [Matched geometry](#matched-geometry-effect) · [Custom animations](#custom-animations) · [Transaction](#transaction-for-fine-control) · [Phase Animator](#phase-animator-ios-17)
+- **Performance** — [Avoiding recomputations](#avoiding-unnecessary-recomputations) · [EquatableView](#equatableview-for-conditional-updates) · [Lazy loading](#lazy-loading) · [drawingGroup](#drawinggroup-for-complex-views)
+- **UIKit interop** — [UIViewRepresentable](#uiviewrepresentable) · [UIViewControllerRepresentable](#uiviewcontrollerrepresentable) · [Delegates](#handling-uikit-delegate-patterns)
+- **Testing** — [ViewInspector](#viewinspector-third-party) · [Snapshot](#snapshot-testing) · [UI testing](#uitesting)
+- **Architecture** — [MVVM + Clean](#mvvm--clean-architecture) · [Components](#component-based-architecture)
 
 ---
 

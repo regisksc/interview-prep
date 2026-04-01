@@ -4,6 +4,21 @@ Common issues and their solutions.
 
 ---
 
+## Contents
+
+| Symptom area | Section | Related practice |
+|--------------|---------|------------------|
+| State not updating, wrong wrapper | [State Issues](#state-issues) | [Drills 1–5](../practice/drills/swiftui/README.md), [swiftui-state](swiftui-state.md) |
+| Layout, clipping, safe area | [Layout Issues](#layout-issues) | [Drills 11–20](../practice/drills/swiftui/README.md#layout-drills-11-20) |
+| Animation glitches | [Animation Issues](#animation-issues) | [Drills 31–40](../practice/drills/swiftui/README.md#animation-drills-31-40) |
+| List / ForEach | [List Issues](#list-issues) | [Drills 41–50](../practice/drills/swiftui/README.md#list-drills-41-50) |
+| Slow UI, redraws | [Performance Issues](#performance-issues) | [swiftui-advanced — Performance](swiftui-advanced.md#performance-optimization), Module 7 |
+| Async / MainActor | [Async/await Issues](#asyncawait-issues) | Module 5, [concurrency challenge](../practice/challenges/README.md) |
+| Compiler errors | [Common Error Messages](#common-error-messages) | — |
+| Debugging workflow | [Debugging Tips](#debugging-tips) | — |
+
+---
+
 ## State Issues
 
 ### Problem: View doesn't update when data changes

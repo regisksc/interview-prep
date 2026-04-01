@@ -4,6 +4,23 @@ Five options, one job to do. This is the map for choosing between them.
 
 ---
 
+## Contents
+
+| Section | Practice |
+|---------|----------|
+| [Start here](#start-here) | Defaults before deep dive |
+| [The normal feature-building flow](#the-normal-feature-building-flow) | Mental checklist |
+| [Quick decision ladder](#quick-decision-ladder) | One-page tree |
+| [The landscape](#the-landscape) | How options relate |
+| [Each tool in depth](#each-tool-in-depth) | @State, ObservableObject, Combine, Redux, Actor subsections |
+| [Decision scenarios](#decision-scenarios) | Four concrete scenarios (search, profile, cart, cache) |
+| [How to answer in interviews](#how-to-answer-which-state-management-do-you-use) | Short script |
+| [Quick reference](#quick-reference) | Table |
+
+**Drills / projects:** [lesson-practice-map — SwiftUI drills 1–10](lesson-practice-map.md) · [challenges](../practice/challenges/README.md).
+
+---
+
 ## Start here
 
 If you are building iOS features and want a practical default:

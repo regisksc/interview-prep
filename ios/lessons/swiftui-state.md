@@ -4,6 +4,29 @@ Understanding when to use each property wrapper is critical for building robust 
 
 ---
 
+## Contents
+
+| Section | Topics | Practice |
+|--------|--------|----------|
+| [Quick Decision Tree](#quick-decision-tree) | When to use which wrapper | Warm-up before drills |
+| [@State](#state--local-view-storage) | Local value-type state | [Drill 1](../practice/projects/swiftui/001-state-counter/) · starter: [`../practice/drills/swiftui/001-state-counter.swift`](../practice/drills/swiftui/001-state-counter.swift) |
+| [@Binding](#binding--two-way-connection) | Child edits parent state | [Drill 2](../practice/projects/swiftui/002-binding-textfield/) · [`002-binding-textfield.swift`](../practice/drills/swiftui/002-binding-textfield.swift) |
+| [@StateObject](#stateobject--owned-observableobject) | You own the `ObservableObject` | [Drill 3](../practice/projects/swiftui/003-stateobject-viewmodel/) · [`003-stateobject-viewmodel.swift`](../practice/drills/swiftui/003-stateobject-viewmodel.swift) |
+| [@ObservedObject](#observedobject--borrowed-observableobject) | Borrowed reference | Drill 3 (child view); drills 6–8 for toggles / pickers |
+| [@EnvironmentObject](#environmentobject--shared-across-hierarchy) | Injected app-wide state | [Drill 5](../practice/projects/swiftui/005-environmentobject-app/) · [`005-environmentobject-app.swift`](../practice/drills/swiftui/005-environmentobject-app.swift) |
+| [@Environment](#environment--system-values) | System values (color scheme, locale, …) | [Drill 19](lesson-practice-map.md#swiftui-drills-by-number) (layout / responsive) |
+| [@AppStorage](#appstorage--userdefaults-wrapper) | `UserDefaults` in SwiftUI | [Drill 4](../practice/projects/swiftui/004-appstorage-settings/) · [`004-appstorage-settings.swift`](../practice/drills/swiftui/004-appstorage-settings.swift) |
+| [@SceneStorage](#scenestorage--scene-restoration) | Per-window persistence | [Drill 59](lesson-practice-map.md#swiftui-drills-by-number) (advanced drills list) |
+| [Comparison Table](#comparison-table) | Side-by-side | — |
+| [State Flow Diagram](#state-flow-diagram) | Mental model | — |
+| [Real-World Example](#real-world-example-complete-feature) | End-to-end | Drills 6–10 · [challenges](../practice/challenges/README.md) |
+| [Testing Tips](#testing-tips) | Unit / preview testing | [swiftui-advanced.md — Testing](swiftui-advanced.md#testing-swiftui) · Module 8 |
+| [Performance Considerations](#performance-considerations) | `body`, `EquatableView`, … | [swiftui-advanced.md — Performance](swiftui-advanced.md#performance-optimization) · Module 7 |
+
+**Full lesson ↔ drill ↔ folder index:** [lesson-practice-map.md](lesson-practice-map.md).
+
+---
+
 ## Quick Decision Tree
 
 ```

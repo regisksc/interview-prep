@@ -4,6 +4,23 @@ Combine is Apple's reactive framework for handling asynchronous events over time
 
 ---
 
+## Contents
+
+| Section | Practice |
+|---------|----------|
+| [Core Concepts](#core-concepts) | Foundation before operators |
+| [Creating Publishers](#creating-publishers) | Build pipelines from values, timers, subjects |
+| [Key Operators](#key-operators) | Transform, filter, combine, error handling |
+| [Real-World Patterns](#real-world-patterns) | Debounced search, forms, chained APIs — pair with [Combine coding challenge](../coding-challenges/combine/README.md) |
+| [SwiftUI Integration](#swiftui-integration) | `.onReceive`, `@Published`, `.assign(to:)` — pair with [Module 3](../README.md#module-3-state-management--data-flow) |
+| [Memory Management](#memory-management) | Cancellables, weak self — pair with [combine_memory challenge](../practice/challenges/README.md) |
+| [Testing Combine](#testing-combine) | Expectations, XCTest |
+| [Common Pitfalls](#common-pitfalls) | Debug checklist |
+| [Quick Reference](#quick-reference) | Cheat sheet |
+| [When to Use Combine](#when-to-use-combine) | vs async/await — link [lesson-practice-map](lesson-practice-map.md) |
+
+---
+
 ## Core Concepts
 
 ### Publishers & Subscribers

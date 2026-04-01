@@ -4,6 +4,18 @@ Comprehensive questions from basics to advanced.
 
 ---
 
+## Contents
+
+| Level | Section | Pair with |
+|-------|---------|-----------|
+| Beginner | [Beginner Questions](#beginner-questions) | [swiftui-state](swiftui-state.md), [Drills 1–10](../practice/drills/swiftui/README.md) |
+| Intermediate | [Intermediate Questions](#intermediate-questions) | [Drills 11–40](../practice/drills/swiftui/README.md), [swiftui-advanced](swiftui-advanced.md) |
+| Advanced | [Advanced Questions](#advanced-questions) | [Drills 41–60](../practice/drills/swiftui/README.md), [challenges](../practice/challenges/README.md) |
+| Scenarios | [Scenario Questions](#scenario-questions) | [state-management-comparison](state-management-comparison.md), Module 4 |
+| Review | [Quick Reference](#quick-reference) | [lesson-practice-map](lesson-practice-map.md) |
+
+---
+
 ## Beginner Questions
 
 ### Q1: What is SwiftUI?
