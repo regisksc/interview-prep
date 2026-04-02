@@ -1,0 +1,30 @@
+name: PhotosChallenge
+options:
+  bundleIdPrefix: com.regisksc
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  PhotosChallenge:
+    type: application
+    platform: iOS
+    sources: Sources
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.regisksc.PhotosChallenge
+    info:
+      path: Info.plist
+      properties:
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+  PhotosChallengeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests
+    dependencies:
+      - target: PhotosChallenge
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
