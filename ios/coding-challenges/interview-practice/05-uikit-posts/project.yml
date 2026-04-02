@@ -1,0 +1,30 @@
+name: PostsChallenge
+options:
+  bundleIdPrefix: com.regisksc
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  PostsChallenge:
+    type: application
+    platform: iOS
+    sources: Sources
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.regisksc.PostsChallenge
+    info:
+      path: Info.plist
+      properties:
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+  PostsChallengeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests
+    dependencies:
+      - target: PostsChallenge
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
