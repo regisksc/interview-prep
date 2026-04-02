@@ -1,0 +1,21 @@
+name: ProductsChallenge
+options:
+  bundleIdPrefix: com.regisksc
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  ProductsChallenge:
+    type: application
+    platform: iOS
+    sources: Sources
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.regisksc.ProductsChallenge
+  ProductsChallengeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests
+    dependencies:
+      - target: ProductsChallenge
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
