@@ -1,0 +1,21 @@
+name: RecipesChallenge
+options:
+  bundleIdPrefix: com.regisksc
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  RecipesChallenge:
+    type: application
+    platform: iOS
+    sources: Sources
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.regisksc.RecipesChallenge
+  RecipesChallengeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests
+    dependencies:
+      - target: RecipesChallenge
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
