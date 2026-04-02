@@ -1,0 +1,21 @@
+name: QuotesChallenge
+options:
+  bundleIdPrefix: com.regisksc
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  QuotesChallenge:
+    type: application
+    platform: iOS
+    sources: Sources
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      PRODUCT_BUNDLE_IDENTIFIER: com.regisksc.QuotesChallenge
+  QuotesChallengeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: Tests
+    dependencies:
+      - target: QuotesChallenge
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
