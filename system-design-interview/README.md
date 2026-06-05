@@ -2444,6 +2444,79 @@ Filtering:
 
 ---
 
+### 5.1.1 CRUD and Resource Modeling — The Basic Shapes
+
+> **Why this section is here:** Every interview design includes some CRUD. The transcript walks through the canonical patterns; this is the version you can say out loud under pressure.
+
+The heart of API design is mapping four operations onto URLs and HTTP methods. These four operations — Create, Read, Update, Delete — are the building blocks of any data-driven API.
+
+| Operation | HTTP method | URL pattern | What happens |
+|-----------|-------------|-------------|--------------|
+| **Create** | `POST` | `/api/products` | Send new product details in the request body. Server creates, returns the new resource (with its generated ID). |
+| **Read one** | `GET` | `/api/products/{id}` | Return a single product by ID. |
+| **Read many** | `GET` | `/api/products` | Return a list. Usually with pagination and filtering. |
+| **Update (full)** | `PUT` | `/api/products/{id}` | Replace the entire resource with the new representation. |
+| **Update (partial)** | `PATCH` | `/api/products/{id}` | Send only the fields you want to change. |
+| **Delete** | `DELETE` | `/api/products/{id}` | Remove the resource. Returns 204 No Content (typically). |
+
+**Resource naming conventions:**
+
+```
+✓ Nouns, plural:    /api/products, /api/users, /api/orders
+✗ Verbs:             /api/getProducts, /api/createUser
+
+✓ Hierarchical for relationships:
+  /api/users/{user_id}/orders
+  → "the orders for this user"
+  This implies a parent-child relationship. Don't go deeper than
+  2 levels — deeper URLs get awkward and slow.
+
+✗ Mixed concerns:
+  /api/users/123/profile/avatar/upload
+  → should be /api/users/123/avatar with POST (a single resource operation)
+```
+
+**Designing for relationships:**
+
+```
+One user has many orders:    /api/users/{user_id}/orders
+One order has many items:    /api/orders/{order_id}/items
+One product has reviews:     /api/products/{product_id}/reviews
+
+Alternative: flat with query params
+  /api/orders?user_id=123
+  → useful when you want to filter across the relationship
+  → less RESTful, but more flexible for complex queries
+```
+
+> **Interview tip:** "For our e-commerce API, the URL structure mirrors the resource hierarchy. A user's orders live at `/api/users/{user_id}/orders`. To get a single order, it's `/api/orders/{order_id}`. The flat-with-filter alternative (`/api/orders?user_id=...`) is fine for admin queries but doesn't reflect the user-facing mental model." This is the kind of clear design rationale that scores senior.
+
+**State codes for CRUD:**
+
+```
+201 Created    – POST that created a new resource (include Location header)
+200 OK         – GET, PUT, PATCH, or DELETE that returned data
+204 No Content – DELETE (or any operation with no body to return)
+400 Bad Request – Malformed request (bad JSON, missing field)
+404 Not Found   – ID doesn't exist
+409 Conflict    – Trying to create something that already exists, or version mismatch
+422 Unprocessable – Valid JSON, but failed business rules (e.g., negative price)
+```
+
+#### What Goes in the URL vs the Body vs the Headers
+
+```
+URL path:        the resource identity    /api/products/123
+URL query:       filtering, sorting, paging  ?category=books&limit=20
+Headers:         metadata about the request  Authorization, Content-Type,
+                                              Accept, If-Match (for optimistic locking)
+Request body:    the resource itself         { "name": "...", "price": ... }
+```
+
+> **Interview tip:** "The path identifies *what*, the query string filters and shapes, the headers carry auth and conditional logic, and the body carries the data. Mixing these up (e.g., putting auth in the body, or filtering data in the path) is a common API design mistake."
+
+---
+
 ### 5.2 WebSockets vs Server-Sent Events vs Long Polling
 
 | | Long Polling | Server-Sent Events (SSE) | WebSockets |
@@ -2809,6 +2882,10 @@ calls being made to backend services to do the actual work.
 | SMTP vs IMAP? | SMTP sends email. IMAP reads email while keeping it on the server (multi-device sync) |
 | MQTT vs AMQP? | MQTT is tiny pub/sub for IoT/unreliable networks. AMQP is enterprise-grade message middleware (RabbitMQ) |
 | WebRTC vs WebSocket? | WebRTC is peer-to-peer media (video/voice). WebSocket is client-server messages (chat/events) |
+| CRUD → HTTP method? | Create=POST, Read=GET, Update=PUT (full) or PATCH (partial), Delete=DELETE |
+| REST URL convention for listing items? | Nouns, plural: GET /api/products. Verbs in the URL are an anti-pattern |
+| PUT vs PATCH? | PUT replaces the entire resource. PATCH sends only the fields to change |
+| GraphQL vs REST for a public API? | REST is usually simpler. GraphQL wins when clients need to aggregate data from many sources with varying field selections |
 
 ---
 
