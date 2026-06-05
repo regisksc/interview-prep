@@ -2032,7 +2032,247 @@ Future<void> retryWithBackoff(Future<void> Function() request) async {
 
 ---
 
-### 5.5 Module 5 — Quick Fire
+### 5.5 Networking Fundamentals — The Vocabulary You Need
+
+> **Why this section is here:** System design interviewers drop terms like "TCP handshake," "DNS resolution," "firewall," and "private IP" casually. If you don't have crisp mental models for these, you freeze when a follow-up question lands on the network. This section is the cheat sheet.
+
+#### IP Addressing — How Two Computers Find Each Other
+
+An **IP address** is a unique identifier for a device on a network. Two main versions exist:
+
+| | IPv4 | IPv6 |
+|--|------|------|
+| Bits | 32 | 128 |
+| Example | `192.168.1.42` | `2001:0db8:85a3::8a2e:0370:7334` |
+| Total addresses | ~4.3 billion | ~3.4 × 10³⁸ |
+| Status | Still dominant, exhausting | The future, gradually rolling out |
+
+**Public vs Private IPs:**
+
+```
+Public IP:  unique across the entire internet
+            (your router has one; your phone carrier assigns one)
+            Can be reached from anywhere in the world.
+
+Private IP: unique only within your local network
+            (your phone on home Wi-Fi is 192.168.1.42;
+             your laptop might be 192.168.1.43;
+             another home has the same 192.168.1.42 — no conflict)
+            Routable only inside the LAN, not on the open internet.
+```
+
+**Static vs Dynamic IPs:** Static = permanently assigned to a device (servers usually have these). Dynamic = assigned by DHCP and can change over time (your laptop on coffee-shop Wi-Fi). Interviewers assume servers are static.
+
+#### Packets — How Data Actually Travels
+
+When two computers communicate, they don't send one big blob. They break the data into **packets**, each containing:
+
+```
+┌──────────────────────────────────────────────────┐
+│ IP Header                                         │
+│  - Source IP:      192.168.1.10                   │
+│  - Destination IP: 93.184.216.34                  │
+│  - Protocol:       TCP (6) / UDP (17)             │
+├──────────────────────────────────────────────────┤
+│ TCP/UDP Header                                    │
+│  - Source port:    54321                          │
+│  - Dest port:      443                            │
+│  - Sequence / ACK numbers (TCP only)              │
+├──────────────────────────────────────────────────┤
+│ Application Data (HTTP, SMTP, SSH, etc.)          │
+│  - "GET /api/therapists HTTP/1.1\r\n..."         │
+└──────────────────────────────────────────────────┘
+```
+
+Packets can take different routes, arrive out of order, or get dropped. That's why we need a transport protocol on top of IP.
+
+#### TCP vs UDP — The Two Transport Choices
+
+| | TCP | UDP |
+|--|-----|-----|
+| Connection | **Connection-oriented** (handshake first) | **Connectionless** (just send) |
+| Reliability | Guaranteed delivery, in-order, no duplicates | Best-effort, may lose or reorder |
+| Speed | Slower (handshake + acknowledgments) | Faster (no overhead) |
+| Header size | 20 bytes | 8 bytes |
+| Use cases | HTTP, HTTPS, SSH, email, file transfer | Video calls, live streaming, DNS, gaming |
+
+**The TCP three-way handshake** (worth knowing — interviewers ask):
+
+```
+Client                              Server
+  │  ──── SYN (seq=x) ───────────►   │   "I want to connect, my seq is x"
+  │  ◄─── SYN-ACK (seq=y, ack=x+1) ─ │   "OK, my seq is y, I expect x+1 next"
+  │  ──── ACK (seq=x+1, ack=y+1) ─►  │   "Got it. Connection established."
+  │                                   │
+  │     Now data can flow, with ACK   │
+  │     + sequence numbers keeping    │
+  │     everything in order.          │
+```
+
+**TCP sequence numbers** are how TCP reassembles packets in the correct order. If packet 5 arrives before packet 4, the receiver buffers 5 and waits for 4. If 4 never arrives, it requests a retransmit. This is why a flaky network feels "sticky" rather than corrupted.
+
+> **Interview framing:** "I'd use TCP for the booking API because correctness matters more than microseconds. I'd use UDP only for the live video stream of a therapy session — a dropped frame is fine, but reordering or delay would be jarring."
+
+#### DNS — The Internet's Phone Book
+
+Humans remember `google.com`. Computers need `142.250.80.46`. **DNS (Domain Name System)** translates between the two.
+
+```
+You type https://api.therapistapp.com in the browser.
+
+Browser asks the OS → "do I have a cached DNS entry for this?"
+  → Yes, recent → use it. Done in <1ms.
+  → No → OS asks the configured DNS resolver (often your ISP, or 8.8.8.8).
+       Resolver asks the root nameserver → "who handles .com?"
+       → .com TLD nameserver → "who handles therapistapp.com?"
+       → authoritative nameserver for therapistapp.com → "api.therapistapp.com is 203.0.113.42"
+       → Resolver caches and returns the IP to your browser.
+       → Browser connects to 203.0.113.42.
+
+Total round-trip if uncached: typically 20-120ms.
+```
+
+**Why this matters in design:** DNS is the first request on the critical path of every user action. A slow DNS resolver adds latency to *every* page load. CDNs and edge networks often co-locate DNS resolvers to cut this to <5ms.
+
+**ICANN** (Internet Corporation for Assigned Names and Numbers) is the nonprofit that coordinates the global DNS root and IP space. **Registrars** like Namecheap, GoDaddy, Google Domains are accredited by ICANN to sell you a domain name.
+
+**Common DNS record types you'll see in design docs:**
+
+| Record | Purpose | Example |
+|--------|---------|---------|
+| **A** | Domain → IPv4 address | `api.app.com → 203.0.113.42` |
+| **AAAA** | Domain → IPv6 address | `api.app.com → 2001:db8::1` |
+| **CNAME** | Domain → another domain (alias) | `www.app.com → app.com` |
+| **MX** | Mail server for the domain | `app.com → mail.app.com` |
+| **TXT** | Free-form text (used for verification, SPF, DKIM) | `"v=spf1 include:_spf.google.com ~all"` |
+| **NS** | Authoritative nameservers for the domain | `app.com → ns1.awsdns.com` |
+
+> **Interview tip:** If you propose a multi-region design, mention that you'd use a **latency-based DNS policy** (Route 53, Cloudflare) to return the IP of the region closest to the user.
+
+#### Ports and Firewalls
+
+A **port** is a 16-bit number (0-65535) that identifies *which application* on a device should receive a packet. The IP gets the packet to the right machine; the port gets it to the right process.
+
+```
+IP:    203.0.113.42     ← which server
+Port:  443               ← which process on that server
+```
+
+**Well-known ports you'll see in designs:**
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 22 | SSH | Secure remote shell |
+| 25 | SMTP | Outgoing email |
+| 80 | HTTP | Unencrypted web |
+| 443 | HTTPS | Encrypted web (TLS) |
+| 3306 | MySQL | Database |
+| 5432 | PostgreSQL | Database |
+| 6379 | Redis | Cache |
+| 27017 | MongoDB | Database |
+
+> **Interview tip:** If you say "we exposed PostgreSQL on 5432 to the application server," an interviewer may ask "is the database on a public IP?" The right answer: **no, the database lives on a private network; only the app server reaches it.** A **firewall** sits at the network boundary, blocking unsolicited inbound traffic.
+
+A **firewall** monitors and filters incoming and outgoing network traffic based on rules. In an interview, "I'd put a firewall in front of the database" means: only the application server's IP can talk to the DB on 5432, everything else is dropped.
+
+#### Putting It Together — A Full Request's Journey
+
+When your mobile app calls `GET https://api.app.com/therapists`:
+
+```
+1. DNS lookup:       api.app.com → 203.0.113.42        (~20ms cold, <1ms warm)
+2. TCP handshake:    SYN → SYN-ACK → ACK                (~50ms over 4G)
+3. TLS handshake:    client hello → server hello → ...  (~100ms first time)
+4. HTTP request:     "GET /therapists HTTP/1.1\r\n..."
+5. Server processing
+6. HTTP response:    200 OK + JSON body
+7. (TCP connection kept alive for reuse)
+```
+
+This is why "make the API faster" can mean: cache the DNS result, reuse the TCP connection (HTTP/1.1 keep-alive, HTTP/2 multiplexing), move closer to the user (CDN/edge), or do the work faster on the server.
+
+> **Senior signal:** When asked "how would you reduce latency?", a junior says "make the server faster." A senior lists which of the 7 steps dominates and attacks that one. On mobile networks, steps 2-3 (TCP + TLS) often dominate the first request — connection coalescing, TLS session resumption, and HTTP/2 help a lot.
+
+---
+
+### 5.6 Application-Layer Protocols — What Else Travels on the Wire
+
+> **Why this matters:** In a design, you might say "we send a push notification" or "users get a video call" or "background jobs process uploaded files." Each of these has a specific protocol, and interviewers may ask why you picked it. This section maps the common ones.
+
+| Protocol | Full name | Layer | Purpose | When to use in a design |
+|----------|-----------|-------|---------|--------------------------|
+| **HTTP/HTTPS** | Hypertext Transfer Protocol | App | Web requests, REST APIs | Default for client↔server communication |
+| **WebSocket** | — | App (over TCP) | Bidirectional, persistent | Chat, live tracking, collaborative editing |
+| **DNS** | Domain Name System | App | Name → IP resolution | Always (handled by the OS, but design around its latency) |
+| **SMTP** | Simple Mail Transfer Protocol | App | Sending email | Outgoing email from your app to recipients |
+| **IMAP** | Internet Message Access Protocol | App | Reading email (server-side sync) | When users need to read mail from multiple devices |
+| **POP3** | Post Office Protocol v3 | App | Downloading email to one device | When mail is managed from a single device only (legacy) |
+| **FTP** | File Transfer Protocol | App | Bulk file upload/download | Legacy file transfers; mostly replaced by SFTP / HTTPS |
+| **SFTP / SSH** | Secure File Transfer / Secure Shell | App | Secure remote access, file transfer | Ops access to servers, secure file movement |
+| **WebRTC** | Web Real-Time Communication | App (over UDP) | Browser/mobile peer-to-peer media | Video calls, voice calls, low-latency P2P |
+| **MQTT** | Message Queuing Telemetry Transport | App | Lightweight pub/sub for IoT | Battery-constrained devices, sensors, telemetry |
+| **AMQP** | Advanced Message Queuing Protocol | App | Robust enterprise messaging | RabbitMQ, enterprise service buses |
+| **RPC** | Remote Procedure Call | App | "Call a function on another machine" | gRPC (HTTP/2 + protobuf), internal microservice calls |
+
+**Email — the three-protocol combo:**
+
+```
+Sending:     your app ──SMTP──► mail server ──SMTP──► recipient's mail server
+Reading:     recipient's mail client ──IMAP or POP3──► recipient's mail server
+
+IMAP:  mail stays on the server; multiple devices stay in sync
+POP3:  mail is downloaded and (usually) deleted from the server; single-device world
+SMTP:  used only for sending, never reading
+```
+
+**WebRTC vs WebSocket — pick the right one for real-time media:**
+
+```
+WebSocket:  client ⇄ server only, good for chat/events
+            (text + small payloads, low rate)
+
+WebRTC:     client ⇄ client (peer-to-peer), good for media
+            (audio + video, needs UDP, handles NAT traversal,
+            built-in encryption, lower latency than a server relay)
+```
+
+A video-calling app usually combines both: WebRTC for the media stream, WebSocket for signaling (the "call Bob" handshake).
+
+**MQTT vs AMQP vs Kafka — message protocols at a glance:**
+
+```
+MQTT:   tiny pub/sub protocol for IoT (a sensor publishing temperature
+        over a 3G connection that goes to sleep between sends)
+        → headers ~2 bytes, designed for unreliable networks.
+
+AMQP:   feature-rich message-oriented middleware (RabbitMQ, etc.)
+        → routing, queues, exchanges, acknowledgments. Enterprise-grade.
+
+Kafka:  not really a wire protocol — a *distributed log* with its own
+        protocol. High-throughput event streaming. (See Module 7.)
+```
+
+**RPC — the umbrella idea:**
+
+```
+RPC = "make a function call on another machine as if it were local."
+
+gRPC:     Google's modern RPC framework (HTTP/2 + protobuf). The default
+          for microservice-to-microservice communication inside Google,
+          Netflix, Square, etc.
+
+JSON-RPC, XML-RPC: older variants using JSON or XML over HTTP. Still seen
+                   in legacy systems.
+
+Inside any larger protocol (HTTP, SMTP, gRPC) you'll often find RPC-style
+calls being made to backend services to do the actual work.
+```
+
+> **Interview tip:** "Why gRPC for internal services and REST for public APIs?" is a favorite question. gRPC is faster (binary, HTTP/2 multiplexed, strongly typed contracts via .proto) but hard to debug from a browser, so it stays inside your service mesh. Public APIs prioritize human-readable JSON, browser compatibility, and easy curl debugging.
+
+---
+
+### 5.7 Module 5 — Quick Fire
 
 | Question | Answer |
 |----------|--------|
@@ -2042,6 +2282,14 @@ Future<void> retryWithBackoff(Future<void> Function() request) async {
 | WebSocket vs SSE? | WebSocket is bidirectional. SSE is server→client only but simpler |
 | gRPC vs REST? | gRPC uses binary protobuf + HTTP/2, faster for internal services. REST is JSON + HTTP/1.1, better for public APIs |
 | Token bucket vs leaky bucket? | Token bucket allows bursts (up to capacity). Leaky bucket smooths all traffic to a constant rate |
+| TCP vs UDP — when to use which? | TCP for correctness (HTTP, file transfer, email). UDP for speed and loss tolerance (video, live streaming, DNS) |
+| What does the TCP three-way handshake do? | SYN → SYN-ACK → ACK establishes a reliable, ordered connection before any data flows |
+| Public vs private IP? | Public is unique across the internet; private is unique only inside your LAN (e.g., 192.168.x.x) |
+| What does a firewall protect? | Filters inbound/outbound traffic by IP/port rules; sits at network boundaries |
+| DNS A record vs CNAME? | A maps domain → IPv4 address. CNAME maps domain → another domain (alias) |
+| SMTP vs IMAP? | SMTP sends email. IMAP reads email while keeping it on the server (multi-device sync) |
+| MQTT vs AMQP? | MQTT is tiny pub/sub for IoT/unreliable networks. AMQP is enterprise-grade message middleware (RabbitMQ) |
+| WebRTC vs WebSocket? | WebRTC is peer-to-peer media (video/voice). WebSocket is client-server messages (chat/events) |
 
 ---
 
