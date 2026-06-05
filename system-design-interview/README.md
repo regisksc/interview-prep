@@ -33,6 +33,130 @@ A system design interview is **not** a trivia test. There is no single correct a
 
 ---
 
+### 1.0 The High-Level Anatomy of a Production App
+
+> **Why this section is here:** Before you can design a system, you need a mental model of what a real production app looks like. The transcript opens with this — and it's the boxes you should be able to draw in 30 seconds if the interviewer asks "give me the standard architecture."
+
+When a senior engineer describes a "production-ready app," they mean a system that has more than just the app and database. Here's the full box diagram, with each box's job:
+
+```
+                      ┌────────────────────────────────────────┐
+                      │         Logging & Monitoring           │
+                      │  (Sentry, Datadog, ELK, CloudWatch)   │
+                      │  Stores logs OFF the production box   │
+                      └────────────────┬───────────────────────┘
+                                       │ (triggers)
+                                       ▼
+            ┌──────────────────────────────────────────────┐
+            │   CI/CD Pipeline                              │
+            │   (GitHub Actions, Jenkins)                    │
+            │   repo → tests → staging → canary → prod      │
+            └──────────────────┬─────────────────────────────┘
+                               │ deploys
+                               ▼
+   ┌──────────┐       ┌──────────────────┐       ┌──────────────────┐
+   │  Users   │──────►│ Load Balancer /  │──────►│  App Servers     │
+   │(web/mobile)│     │ Reverse Proxy    │       │  (auto-scaling   │
+   └──────────┘       │  (NGINX, ALB)    │       │   group)         │
+                      └──────────────────┘       └────────┬─────────┘
+                                                          │
+                              ┌───────────────────────────┤
+                              │                           │
+                              ▼                           ▼
+                      ┌──────────────────┐      ┌──────────────────┐
+                      │  Cache           │      │  External        │
+                      │  (Redis)         │      │  Storage         │
+                      └──────────────────┘      │  (S3, separate   │
+                                                │   network)       │
+                                                └──────────────────┘
+                                                          │
+                                                          ▼
+                      ┌──────────────────────────────────────────────┐
+                      │   Primary Database + Read Replicas            │
+                      │   (PostgreSQL, MongoDB)                        │
+                      └──────────────────────────────────────────────┘
+```
+
+#### What Each Box Does
+
+```
+CI/CD pipeline:
+  Code in repo → automated tests → staging deploy → canary deploy → full prod.
+  Tools: GitHub Actions, Jenkins, GitLab CI, CircleCI, Bitrise.
+  No human clicks "deploy" in a healthy system.
+
+Load balancer / reverse proxy:
+  First thing requests hit. Distributes traffic across app servers,
+  terminates TLS, may do gzip and WAF inspection.
+  Could be a cloud LB (ALB, GCP LB) or self-hosted (NGINX, HAProxy).
+
+App servers:
+  Stateless. Auto-scaled based on CPU / request rate / queue depth.
+  Multiple servers → any one dying is a non-event.
+
+Cache (Redis, Memcached):
+  Fronts the database for hot reads, holds sessions, holds rate-limit
+  counters, sometimes pub/sub for coordination.
+
+External storage (S3, GCS, Azure Blob):
+  Files, images, videos, backups. Lives on a separate network from
+  the app servers. Accessed via SDK or signed URLs.
+
+Database + read replicas:
+  Source of truth. Writes go to the primary. Reads scale out to replicas.
+  (When this isn't enough, you shard. See Module 3.6.)
+
+Logging & monitoring:
+  Logs, metrics, traces flow out of every other box into a separate
+  observability stack. Sentry for front-end errors, PM2/CloudWatch
+  for back-end, ELK/Datadog for centralized search.
+
+Alerting:
+  When the monitoring stack detects an anomaly (error rate spike,
+  latency cliff, queue depth growing), it pushes a notification
+  → Slack channel, PagerDuty page, or status page update.
+```
+
+#### The Operational Loop (What Happens When Things Break)
+
+```
+1. ALERT FIRES       PagerDuty / Slack notification
+                     "Error rate on /api/bookings > 5% for 5 min"
+2. ON-CALL ACKS      Engineer opens the alert thread
+3. INVESTIGATE       Check dashboards, tail logs, check recent deploys
+                     (50% of incidents are "what changed?")
+4. REPRODUCE         In staging — never debug in production directly
+5. MITIGATE          Roll back, disable a feature flag, drain a node
+                     (stop the bleeding before the root-cause fix)
+6. HOTFIX / ROLLBACK Quick patch to restore service
+7. ROOT-CAUSE FIX    Proper fix through the normal pipeline
+8. POSTMORTEM        Blameless write-up: what happened, why,
+                     what we'll do to prevent it
+```
+
+> **Senior signal:** When you start a design interview, you can say *"before I draw, let me make sure I'm thinking about this as a production system, not just an app — so the boxes I should always have in my head are CI/CD, the LB, the app tier, the cache, the database, external storage, and observability/alerting. For our design today, which of these do you most want to focus on?"* This is the senior opener. It signals you know the full landscape.
+
+> **Why this is the right mental model:** It's the boxes you'd see on a whiteboard at any architecture review. It's the boxes the interviewer is mentally drawing too. Naming them up front shows you're playing the same game.
+
+#### Mobile-Specific Add-On
+
+Because this guide targets mobile engineers, two more boxes belong on the diagram:
+
+```
+Push notification service (APNs, FCM):
+  Out-of-band channel for waking the app, delivering critical updates
+  (appointment reminders, password resets). The app's only way to
+  receive messages when it's not running.
+
+CDN (Cloudflare, Fastly, CloudFront, Akamai):
+  Serves your static assets (images, JS bundles, videos) from
+  edge locations close to the user. Cuts first-paint time dramatically.
+```
+
+These were covered in detail in Module 4 (caching) and Module 10 (mobile), but they belong in your "default architecture" mental model.
+
+---
+
 ### 1.1 The Full 45-Minute Map — What Happens When
 
 Before anything else, internalize this timeline. You will use it to pace yourself so you don't spend 35 minutes on requirements and have no time to draw anything, or rush into a full architecture at minute 2.
@@ -448,6 +572,8 @@ These are compressed reminders. Only use these after you've internalized the exp
 | What are you doing in the high-level design phase? | Drawing every component shallowly, narrating while drawing, not going deep on anything yet |
 | What does good deep-dive look like? | Problem → solution → trade-off. Always the three together. |
 | How do you show seniority in the wrap-up? | Critique your own design. Name the biggest risk you'd address next. |
+| The boxes in a standard production architecture? | CI/CD → Load balancer → app servers → cache + external storage → DB. Plus observability + alerting wrapping it all |
+| Why is "never debug in production" the rule? | A mistake there affects users. Always reproduce in a staging environment that mirrors production |
 
 ---
 
