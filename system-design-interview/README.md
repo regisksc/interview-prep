@@ -2305,7 +2305,154 @@ A **load balancer** distributes incoming requests across multiple server instanc
 
 **Least Connections:** Send the next request to whichever server has the fewest active connections. Better when requests have variable processing time.
 
-**Consistent Hashing:** Route requests for the same resource (e.g., same user_id) to the same server. Critical for stateful operations where server-local state (connection pools, caches) must be reused.
+**Consistent Hashing:** Route requests for the same resource (e.g., same `user_id`) to the same server. Critical for stateful operations where server-local state (connection pools, caches) must be reused.
+
+#### More Algorithms You Should Know
+
+The three above are the ones you use every day. The ones below are the ones that show up in design reviews and in senior interviews.
+
+| Algorithm | What it does | When to use it | Trade-off |
+|-----------|--------------|----------------|-----------|
+| **Least Response Time** | Picks server with lowest response time AND fewest active connections | When latency matters more than throughput (e.g., user-facing API) | Needs a feedback loop from each server; slightly more complex |
+| **IP Hash** | `hash(client_ip) % N` → fixed server per client | When you need session affinity (a user sticks to one server) | If a user moves networks (Wi-Fi → cellular), they may land on a different server |
+| **Weighted Round Robin / Weighted Least Connections** | Like the base algorithm, but servers have weights (more capable = more traffic) | When the pool is heterogeneous (e.g., 1× big box + 3× small boxes during migration) | Static weights go stale; you need to re-tune when servers change |
+| **Geographic / Geo-IP** | Route to the closest region or a specific region for compliance | Global services where latency reduction is priority, or data residency rules | Closest is not always fastest (a nearby region can be overloaded) |
+| **Consistent Hashing (in a ring)** | Place nodes + keys on a hash ring; key goes to the next node clockwise | Distributed caches (Memcached, Redis Cluster), CDN edge selection | Trickier to reason about; needs virtual nodes to balance load |
+
+> **Senior signal:** Don't just say "Round Robin." Say *"Round Robin works for our backend today because all app servers are identical and request time is roughly uniform. The day we mix instance sizes or run long-running requests, I'd switch to Weighted Least Connections. And if I needed a user to always land on the same server (e.g., for a sticky session on the chat service), I'd use IP Hash."*
+
+#### Health Checks — The Other Half of Load Balancing
+
+A load balancer is only useful if it stops sending traffic to broken servers. **Health checks** are periodic probes ("GET /healthz on port 8080 — does it return 200?") that mark servers as healthy or unhealthy.
+
+```
+Healthy:   LB sends traffic
+Unhealthy: LB stops sending traffic; resumes only after N consecutive successes
+
+Active probe:   LB pings every 5s; 3 fails in a row → unhealthy
+Passive probe:  LB watches real responses; if 50% of last 100 requests 5xx'd → unhealthy
+
+Failing fast (active) catches a dead server in seconds.
+Failing on signal (passive) catches a degraded server that returns 200 but is super slow.
+```
+
+Most production setups use both. A dead server is caught by active probes; a slow or partially-broken server is caught by passive error rate.
+
+#### Software vs Hardware vs Cloud Load Balancers
+
+| Type | Examples | When to reach for it |
+|------|----------|----------------------|
+| **Hardware** | F5 BIG-IP, Citrix ADC (formerly NetScaler) | Carrier-grade performance, dedicated appliances, on-prem data centers. Very expensive, high throughput. |
+| **Software** | HAProxy, Nginx, Envoy, Traefik | Self-hosted, flexible, runs on commodity servers. The default inside a service mesh or on VMs. |
+| **Cloud-managed** | AWS ELB / ALB / NLB, GCP Load Balancer, Azure Load Balancer | When you're on a cloud — they're highly available by default, integrate with auto-scaling, certificates, WAFs. |
+| **Virtual / Software-defined ADC** | F5 NGINX Plus, Citrix ADC VPX, VMware AVI | Deploy the "hardware" experience as software (on a VM or in the cloud). Used in hybrid setups. |
+
+> **Interview tip:** If your design is on AWS, you don't even draw a load balancer box — you just say "an ALB terminates TLS and routes to an ASG of app servers." The interviewer will smile. If you're on-prem, "HAProxy doing TCP load balancing" is the safe answer.
+
+---
+
+### 6.1.1 Proxy Servers — Forward, Reverse, and Friends
+
+> **Why this section is here:** A load balancer is a *type* of proxy. A CDN is a *type* of proxy. If you can't articulate the difference between a forward and reverse proxy, you'll be lost in any architecture review where these terms come up.
+
+A **proxy** is a server that sits between a client and the actual server, forwarding requests and responses. The two main flavors are mirror images of each other:
+
+```
+Forward proxy (in front of the CLIENT):
+  Client ──► Forward Proxy ──► Internet (target server)
+  The proxy hides the client. The server thinks it's talking to the proxy.
+  Used to: control / monitor / anonymize outgoing traffic from a network.
+
+Reverse proxy (in front of the SERVER):
+  Client ──► Reverse Proxy ──► Backend server(s)
+  The proxy hides the servers. The client thinks it's talking to the proxy.
+  Used to: load balance, cache, terminate TLS, hide topology, WAF.
+```
+
+#### Forward Proxy — Use Cases
+
+| Use case | What it does |
+|----------|--------------|
+| **Corporate egress control** | Block employees from visiting non-work sites. All outbound traffic must go through the proxy. |
+| **Anonymity / privacy** | The destination sees the proxy's IP, not the client's. Journalists, researchers, privacy-conscious users. |
+| **Caching at the network edge** | A school or ISP caches popular content at the proxy; the same 1000 students watching the same video only hit the origin once. |
+| **Multi-account management** | Marketers managing many Instagram accounts route through different residential proxies to look like different users in different places. (This is the "Instagram proxy" use case — exists in a gray area.) |
+| **Malware / virus scanning** | Inspect and sanitize traffic leaving the network. |
+
+The defining feature: the proxy is chosen and configured by the **client side** (the corporate IT team, the user, the app).
+
+#### Reverse Proxy — Use Cases
+
+| Use case | What it does |
+|----------|--------------|
+| **Load balancing** | Distribute traffic across multiple backend servers. (This is what ALB / HAProxy do.) |
+| **TLS termination** | Decrypt HTTPS at the edge so backend servers see plain HTTP. Saves CPU on the app servers. |
+| **Caching** | Cache static or cacheable responses at the edge (CDNs are reverse proxies). |
+| **Compression** | Gzip responses on the way out. |
+| **WAF / security** | Inspect requests for SQLi, XSS, bot patterns before they reach the app. |
+| **Hide topology** | The client only knows the proxy's IP — never learns how many backend servers exist or where they live. |
+| **Canary / blue-green** | Route 1% of traffic to a new version, 99% to the old — both behind the same proxy. |
+
+> **Interview tip:** "I'd put a reverse proxy (NGINX / ALB) in front of the app servers. It does TLS termination, gzip, and routes /api/* to the API service and /static/* to the CDN. For WAF, I'd put AWS WAF in front of the ALB." This is the kind of sentence that signals you've actually deployed something.
+
+#### Other Proxy Variants You'll Hear About
+
+| Type | What it is | When you'd mention it |
+|------|------------|----------------------|
+| **Open proxy** | Anyone on the internet can use it (often abused) | "We block known open proxies because they're a source of abuse" |
+| **Transparent proxy** | Client doesn't know it's there; traffic is forced through it | Corporate networks / ISPs; you can't "opt out" |
+| **Anonymous proxy** | Hides client IP but identifies itself as a proxy | Privacy browsing |
+| **Distorting proxy** | Sends a *false* IP to the destination | SEO / ad-verification use cases |
+| **High-anonymity (Elite) proxy** | Doesn't send `X-Forwarded-For` or any proxy-identifying header; destination can't tell a proxy is in use | Maximum anonymity; harder to fingerprint |
+
+#### What Is a CDN, Really?
+
+A **CDN** (Content Delivery Network) is just a **fleet of reverse proxies** distributed geographically. The CDN edge closest to the user fetches content from the origin, caches it, and serves the next request. (Module 4.11 covered the why; here is the *what*.)
+
+**Two flavors of CDNs (matters for design):**
+
+```
+Pull-based CDN (most common):
+  User requests /images/hero.jpg
+  → CDN edge doesn't have it → fetches from origin, caches it, returns it
+  → Next user gets it from cache
+  You don't manage what gets cached; the CDN does, based on demand.
+  Best for: websites with lots of static content updated regularly.
+
+Push-based CDN:
+  You upload /images/hero.jpg to the CDN yourself (or via an API)
+  → CDN stores it on all edges eagerly
+  You control exactly what's on each edge.
+  Best for: large files, infrequent updates, content that must be
+            on the edge before the first user request (e.g., a game patch).
+```
+
+> **Interview framing:** "I'd use a pull-based CDN for our public marketing site and blog images — content changes often and traffic is unpredictable. For the mobile app's video assets (a 500 MB therapy session recording), I'd use a push-based CDN during release windows so users worldwide can download the new build from the nearest edge."
+
+#### Why the Load Balancer Is Itself a Single Point of Failure
+
+The load balancer is in front of *every* server. If it dies, all servers are unreachable. The strategies to avoid that:
+
+```
+1. Redundant load balancers (active-active or active-passive pair)
+   → AWS ALB is already two behind the scenes; you don't see it.
+   → On-prem: two HAProxy instances + keepalived/VRRP for a virtual IP.
+
+2. DNS-level failover
+   → Health-check the LB IP; if it goes down, update DNS to point at a backup.
+   → Slow (DNS caches); coarse. Last resort.
+
+3. Anycast IP
+   → The same IP is advertised from multiple physical locations;
+     routing takes the user to the closest healthy one.
+   → What big CDNs (Cloudflare, Fastly) and DNS root servers do.
+
+4. Self-healing infra
+   → Auto-scaling group detects a failed LB, terminates it, launches a new one.
+   → Works best in cloud / Kubernetes environments.
+```
+
+> **Interview tip:** When you draw a load balancer, the interviewer may ask "what if this dies?" The strong answer names a specific mitigation (active-active HA pair, cloud-managed LB which is already HA, or anycast for global). "We just hope it doesn't" is not a senior answer.
 
 ---
 
@@ -2386,7 +2533,73 @@ Already covered in Module 3.6 for sharding. Consistent hashing also applies to l
 
 ---
 
-### 6.6 Module 6 — Quick Fire
+### 6.6 Throughput vs Latency — Two Numbers That Define Performance
+
+Every performance question in an interview reduces to one of these two numbers. They're related, but they measure *different things*, and optimizing one often hurts the other.
+
+**Throughput:** How much *work* the system does per unit of time. "How many requests can we handle?"
+
+**Latency:** How long *one* piece of work takes. "How long until this single request returns?"
+
+| | Throughput | Latency |
+|--|------------|---------|
+| Question | "How many per second?" | "How long does one take?" |
+| Unit | RPS, QPS, MB/s, msgs/s | ms (or µs) |
+| Goes up when | You batch, parallelize, add capacity | You make each operation faster |
+| Tradeoff | Batching *one* request makes its latency worse, but increases throughput | Doing every request *immediately* (no batching) can starve the system |
+
+#### Three Throughputs You Should Name in an Interview
+
+| Metric | What it counts | When it matters |
+|--------|----------------|-----------------|
+| **Server throughput (RPS)** | Requests per second a single server (or fleet) handles | Capacity planning for the API tier |
+| **Database throughput (QPS)** | Queries per second the database can serve | Whether you need read replicas, caching, or both |
+| **Data throughput (bytes/s)** | Bandwidth consumed when moving data | Network costs, S3 egress, video streaming, replication |
+
+> **Interview tip:** "We're at 5,000 RPS per app server. The bottleneck is the DB at 2,000 QPS. To get to 20,000 RPS, I'd (a) add 4 read replicas to triple QPS, and (b) cache hot reads in Redis to keep the DB at 1,200 QPS." This is what throughput-driven design looks like.
+
+#### Latency — P50, P95, P99, and the Tail
+
+"Latency" without a percentile is meaningless. Averages hide misery.
+
+```
+For 1,000 requests with these latencies in ms:
+  990 requests: 50ms
+  10 requests:  5000ms (cold cache, GC pause, network blip)
+
+Average: 99.5ms    ← misleading
+P50:     50ms      ← typical user
+P99:     5000ms    ← 1 in 100 users is furious
+P99.9:   5000ms    ← 1 in 1000 gave up and uninstalled the app
+```
+
+**The senior move:** always state the *tail* (P95 or P99) in your SLOs, not the average. The average is fine for capacity planning; the tail is what users actually feel.
+
+> **Interview signal:** Saying "the API has 100ms latency" is junior. Saying "P50 is 30ms, P99 is 180ms, P99.9 is 1.2s and that last bucket is dominated by cold cache misses" is senior.
+
+#### The Throughput / Latency Tradeoff
+
+Batching is the cleanest example. Say you can process 1 request at a time, taking 100ms each, with 10 server threads.
+
+```
+Without batching: each request goes to a thread, returns in 100ms
+  → Latency per request: 100ms
+  → Throughput: 10 threads × 10 RPS = 100 RPS
+
+With batching (wait up to 50ms, then process 10 at once):
+  → Latency per request: 50ms (wait) + 100ms (process) = 150ms
+  → Throughput: 20 batches/s × 10 = 200 RPS
+
+Latency got 50% worse. Throughput doubled.
+```
+
+The right answer depends on what users feel. A search box accepts +50ms for 2× throughput. A "Buy now" button does not.
+
+> **Interview framing:** "I'd avoid batching on the booking confirmation path — that user is staring at a spinner, latency dominates perceived quality. I'd happily batch the analytics ingestion pipeline — a 5-second lag there is invisible to the user, and we get 10× throughput."
+
+---
+
+### 6.7 Module 6 — Quick Fire
 
 | Question | Answer |
 |----------|--------|
@@ -2395,6 +2608,14 @@ Already covered in Module 3.6 for sharding. Consistent hashing also applies to l
 | Can you have CA without P? | In theory yes, but in real distributed systems, partitions happen — so you must choose CP or AP |
 | Round Robin vs Least Connections? | Round Robin for uniform servers/requests. Least Connections when request processing time varies |
 | What does BASE stand for? | Basically Available, Soft state, Eventually consistent |
+| When would you use IP Hash load balancing? | When you need session affinity — a user always lands on the same server |
+| Why is a single load balancer a problem? | It's a single point of failure — every request flows through it, so its death takes down the whole service |
+| Forward proxy vs reverse proxy — what's the difference? | Forward proxy sits in front of *clients* (controls/anonymizes outgoing traffic). Reverse proxy sits in front of *servers* (load balances, caches, terminates TLS) |
+| Is a CDN a proxy? | Yes — a fleet of reverse proxies distributed geographically |
+| Pull-based vs push-based CDN? | Pull: CDN fetches from origin on first request. Push: you upload to CDN explicitly. Pull for unpredictable demand, push for large predictable releases |
+| Throughput vs latency — give an example of trading one for the other | Batching increases throughput but adds latency per request |
+| Why do we report P99 latency instead of average? | The average hides tail latency; P99 reflects what 1 in 100 users actually experiences |
+| Name the three throughputs you'd quote in a design | Server RPS, database QPS, and data bytes/sec |
 
 ---
 
