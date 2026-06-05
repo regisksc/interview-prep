@@ -2747,6 +2747,116 @@ calls being made to backend services to do the actual work.
 
 > **Priority: HIGH.** Every "how would you scale this?" question lives here.
 
+### 6.0 The Three Pillars of System Design
+
+> **Why this section is here:** Before you scale a system, you have to know what "good" means. The transcript names three pillars that define a good design — interviewers will judge your work against all three, often without saying so.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                  Three pillars of a good design                    │
+│                                                                    │
+│  1. SCALABILITY      2. MAINTAINABILITY      3. EFFICIENCY         │
+│                                                                    │
+│  The system grows   The system can be        The system uses       │
+│  with its user      understood and           resources well —      │
+│  base.              improved by future       CPU, RAM, network,    │
+│                     developers.              money, energy.        │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Scalability
+
+The system handles 10×, 100×, 1000× the load without falling over. Already the topic of this whole module — caching, sharding, replication, load balancing all serve scalability.
+
+**Two flavors:**
+
+```
+Vertical scalability (scale up):
+  Make one server bigger. 4 CPU → 32 CPU, 32 GB → 512 GB.
+  Simple. Hard ceiling (largest machine available). Single point of failure.
+
+Horizontal scalability (scale out):
+  Add more servers. 1 → 10 → 100.
+  Requires stateless services. No real ceiling. No SPOF.
+
+In practice: scale up first (it's easier), then scale out (it's stronger).
+```
+
+#### 2. Maintainability
+
+The system can be **understood, changed, and debugged** by humans who didn't build it. The interviewer's mental check: *"If a new engineer joined the team tomorrow, could they ship a feature in this system in their first sprint?"*
+
+**What improves maintainability:**
+
+```
+✓ Clear, documented APIs (OpenAPI / protobuf / GraphQL schema)
+✓ Structured logs and good error messages
+✓ Consistent naming and folder structure
+✓ Tests (unit, integration, contract, load)
+✓ Feature flags so you can change behavior without redeploying
+✓ Health check endpoints and runbooks
+✓ Modular services (small, focused, replaceable)
+```
+
+> **Senior signal:** When asked "how would you design X?" mention maintainability unprompted: *"I'd split the booking service from the notification service so they can be deployed and scaled independently — and so when a new engineer joins, they can own one service at a time."*
+
+**What hurts maintainability:**
+
+```
+✗ Hidden side effects (mutation through a "getter")
+✗ Distributed monolith (microservices that all deploy together)
+✗ Magic numbers / magic strings / global state
+✗ Logs that say "something went wrong"
+✗ No tests, no docs, no runbook for the on-call engineer
+```
+
+#### 3. Efficiency
+
+The system does its work with the **least amount of resources needed** — money, CPU, RAM, network, energy. This is the "make it cheap to run" pillar.
+
+**Interview-relevant examples:**
+
+```
+"Caching the therapist profile in Redis reduces our database load from
+ 10,000 QPS to 1,000 QPS — that's a 10x cost reduction on the database
+ tier, which is our most expensive line item."
+
+"We use protobuf for internal service-to-service calls instead of JSON.
+ At 5 billion requests/day, that's several TB less network egress per
+ month — meaningful cost and latency win."
+
+"Geohashing rider location queries reduces a 100ms PostGIS scan to a
+ 5ms index lookup. 20× faster AND the database handles 20× the load
+ on the same hardware."
+```
+
+#### The Fourth Pillar the Interview Looks For: Resilience
+
+The transcript also calls out a dimension that the three pillars don't fully cover — **planning for failure**.
+
+```
+A scalable, maintainable, efficient system that crashes when one
+server dies is not a good system.
+
+A good system:
+  - Expects things to fail (servers, networks, deployments, third-party APIs)
+  - Continues to function in degraded mode (core features stay up)
+  - Recovers automatically when the failure resolves
+  - Surfaces failures to humans who can fix them (alerts, dashboards)
+
+This is the topic of Module 12 (Observability & Reliability).
+```
+
+#### How to Use This in the Interview
+
+When you propose a design, name the trade-off against these three pillars explicitly. The strongest candidates are the ones who *self-critique*:
+
+> *"I'm proposing horizontal scaling with a Redis cache, which is highly scalable and efficient. The maintainability cost is that we now have two more systems to operate — Redis needs monitoring, backups, and a failover plan. The alternative — pure read replicas on the database — is less efficient but more maintainable. For a 5-person team, I'd probably start with the replicas; for a 50-person team, the cache is the right call."*
+
+> **Senior signal:** Naming a trade-off against a *named* pillar (scalability, maintainability, efficiency) is dramatically more senior than "it's a trade-off." It shows you have a framework, not just an opinion.
+
+---
+
 ### 6.1 Load Balancing Strategies
 
 A **load balancer** distributes incoming requests across multiple server instances.
@@ -3066,6 +3176,9 @@ The right answer depends on what users feel. A search box accepts +50ms for 2× 
 | Throughput vs latency — give an example of trading one for the other | Batching increases throughput but adds latency per request |
 | Why do we report P99 latency instead of average? | The average hides tail latency; P99 reflects what 1 in 100 users actually experiences |
 | Name the three throughputs you'd quote in a design | Server RPS, database QPS, and data bytes/sec |
+| The three pillars of system design? | Scalability (handles growth), maintainability (humans can change it), efficiency (uses resources well) |
+| What is N+1 vs N+2? | N+1 redundancy = survive 1 component failure. N+2 = survive 2. You negotiate this with the SLA |
+| Vertical vs horizontal scaling — which is "first"? | Vertical first (easier), horizontal at scale (stronger). Production is almost always both |
 
 ---
 
@@ -3947,6 +4060,109 @@ Rule: You can only change AttendanceRecord through Appointment.
 
 ---
 
+### 12.0 Resilience Vocabulary — The Terms Behind the Buzzword
+
+> **Why this section is here:** "How resilient is this design?" is a question you'll get, and the words *reliability*, *fault tolerance*, and *redundancy* sound similar but mean different things. Get them tangled in an interview and you lose credibility fast. This section makes them crisp.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  RELIABILITY   — Does the system work correctly when it works?     │
+│  FAULT TOLERANCE — Does the system survive when something breaks?  │
+│  REDUNDANCY    — Do we have backups ready to take over?            │
+│  RESILIENCE    — The umbrella: does the system absorb and recover? │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+#### Reliability — Works Correctly and Consistently
+
+A reliable system gives the right answer, the right way, every time. It's not just *up* — it's *correct*.
+
+```
+Reliable:
+  Booking service: user clicks "Book 3pm Tuesday"
+  → returns 200 with a confirmed appointment
+  → the database has the new appointment
+  → the user gets a confirmation email
+  → if any of these fail, the system tells the user clearly (not a silent partial success)
+
+Unreliable:
+  Booking service: user clicks "Book 3pm Tuesday"
+  → returns 200 (claimed success)
+  → database write succeeded
+  → email never sent
+  → user thinks the appointment is confirmed; it shows in the app,
+    but they got no notification, and the therapist's calendar
+    shows it differently. Silent inconsistency.
+```
+
+**Reliability is about *correctness*, not just availability.** A system that's always available but sometimes lies to the user is not reliable.
+
+#### Fault Tolerance — Survives When Things Break
+
+A fault-tolerant system **keeps functioning** when components fail. The failure is contained; the service degrades gracefully instead of collapsing.
+
+```
+Server dies:         Load balancer stops sending traffic to it.
+Network blips:        Retry with exponential backoff; circuit breaker
+                      opens if the dependency is too sick to call.
+Database is slow:     Read replica takes over; cache absorbs the load.
+Third-party API down: Circuit breaker returns "service degraded";
+                      users see a banner, not a stack trace.
+Region goes down:     DNS failover routes traffic to another region.
+```
+
+> **Interview tip:** "My design is fault-tolerant to *N* server failures" is a concrete, measurable claim. Specify *N* and the interviewer knows you've actually thought about the failure modes.
+
+#### Redundancy — Backups Ready to Take Over
+
+Redundancy is the *mechanism* that makes fault tolerance possible: having **more than one** of the critical components.
+
+```
+Redundancy patterns:
+  + Data redundancy:        Multiple copies of the data (replication, backups)
+  + Compute redundancy:     Multiple app servers behind a load balancer
+  + Network redundancy:     Multiple ISPs, multiple network paths
+  + Geographic redundancy:  Multi-region deployment
+  + Power redundancy:       UPS, generators, multiple power feeds
+
+Rule of thumb: every component that can take the system down
+should have at least one backup ready to take over automatically.
+```
+
+**Important:** "Redundant" doesn't mean "duplicated." A replica is redundant; a backup on tape that takes 4 hours to restore is not (for runtime redundancy).
+
+> **Interview tip:** "We have N+2 redundancy" is a specific, senior claim. It means we can lose 2 servers out of N+2 and still serve traffic at full capacity. N+1 means losing 1 is fine; N+2 means losing 2. Pick the right number based on your SLA.
+
+#### Resilience — The Umbrella
+
+Resilience is the property of *absorbing failures and recovering from them*. Reliability + fault tolerance + redundancy are the ingredients.
+
+```
+A resilient system:
+  1. Detects failures (monitoring, alerts)            ← observability
+  2. Limits blast radius (isolation, bulkheads)        ← fault tolerance
+  3. Continues core functionality (graceful degradation) ← fault tolerance
+  4. Recovers automatically (auto-scaling, failover)   ← redundancy
+  5. Recovers state correctly (replication, backups)   ← reliability
+  6. Learns from incidents (postmortems, action items)  ← culture
+```
+
+> **Senior framing:** "I'd say the design is resilient to one full AZ failure and one slow third-party dependency simultaneously. Beyond that, the booking flow degrades to a 'try again later' message — which is acceptable per our SLO of 'core booking flow succeeds 99.9% of the time.'" Specific failure modes + specific recovery = the senior answer.
+
+#### How to Apply This in an Interview
+
+When you describe a design, ask yourself: **what's the worst single thing that can break, and what happens?**
+
+| Failure | A weak answer | A strong answer |
+|---------|---------------|-----------------|
+| "What if the database dies?" | "We have backups." | "Primary fails → the replica is promoted in <30s via automated failover. Reads/writes resume. RPO = 0 (sync replication), RTO = 30s." |
+| "What if a region goes down?" | "We have multi-region." | "DNS health check fails → traffic shifts to the secondary region in ~60s. The secondary runs warm (serving 10% of traffic normally) so it's not cold-starting. Database is asynchronously replicated; we may lose <1 minute of writes." |
+| "What if the third-party payment API is down?" | "We retry." | "Circuit breaker opens after 5 failures in 10s. New payment requests get a 503 + 'payment temporarily unavailable' message. We persist the pending payment in our DB and retry asynchronously when the third party recovers. Users see the truth; the system stays internally consistent." |
+
+> **The senior signal:** Naming **RPO** (Recovery Point Objective — how much data you can afford to lose) and **RTO** (Recovery Time Objective — how long recovery can take) is gold. These are the actual numbers you negotiate with the business.
+
+---
+
 ### 12.1 SLI, SLO, SLA — The Reliability Hierarchy
 
 These three acronyms are used constantly in reliability discussions and often confused.
@@ -4255,6 +4471,10 @@ A **hotfix** is a small, targeted patch to stop a bleeding issue immediately. It
 | Hotfix vs proper fix | Hotfix: small patch to stop the bleeding, ships fast. Proper fix: root-cause fix through normal pipeline |
 | Why ship logs off the server? | So they survive server death and can't be tampered with if the server is compromised |
 | Why are alerts in Slack *and* PagerDuty? | Slack for team-visible context (warnings, deploys). PagerDuty for urgent, on-call, escalatable pages |
+| Reliability vs fault tolerance? | Reliability = works correctly when up. Fault tolerance = keeps working when something breaks |
+| What is N+2 redundancy? | You can lose 2 of N+2 components and still serve at full capacity. N+1 = survive 1 failure |
+| What are RPO and RTO? | RPO: how much data loss is acceptable. RTO: how long recovery can take. The two numbers you negotiate |
+| Graceful degradation means what? | When a dependency fails, the system stays up but with reduced functionality (e.g., disable a feature, show a banner) instead of crashing |
 
 ---
 
