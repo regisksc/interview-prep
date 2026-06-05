@@ -319,6 +319,109 @@ Or:
 
 ---
 
+### 1.7.1 The Three Core Elements of Any System
+
+Before you draw your first box in an interview, internalize this. *Every* system you will ever design is, at its heart, doing three things. Once you can place any component into one of these three buckets, the design becomes easier to reason about — and the interviewer's questions become easier to anticipate.
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                                                                    │
+│  1. MOVING DATA        2. STORING DATA        3. TRANSFORMING DATA │
+│                                                                    │
+│  How data flows.    Where data lives.    How raw input becomes    │
+│  Networks, queues,  Databases, caches,   useful output.           │
+│  load balancers,    object stores,       Business logic,         │
+│  APIs, streams.     backups.             aggregation, ETL,        │
+│                                          enrichment.              │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Moving Data
+
+Everything about *how bytes get from A to B*.
+
+```
+In scope:
+  - Networks (TCP/UDP, DNS, firewalls, CDNs)
+  - Load balancers, reverse proxies, API gateways
+  - Message queues (Kafka, RabbitMQ, SQS)
+  - Pub/sub topics, event streams
+  - WebSockets, gRPC, REST endpoints
+  - File transfer (SFTP, presigned URLs to S3)
+
+Design questions:
+  - Synchronous or async?
+  - Push or pull?
+  - Guaranteed delivery or best-effort?
+  - What's the bandwidth / latency budget?
+```
+
+> **Module mapping:** Networking (Module 5.5), APIs (Module 5.1), Load Balancing (Module 6.1), Proxies (Module 6.1.1), Message Queues (Module 7).
+
+#### 2. Storing Data
+
+Everything about *where bytes live and how they come back*.
+
+```
+In scope:
+  - Relational databases (PostgreSQL, MySQL)
+  - NoSQL: document (MongoDB), key-value (Redis), wide-column (Cassandra),
+    graph (Neo4j)
+  - Object storage (S3), block storage (EBS), file systems
+  - Caches (Redis, Memcached, CDN)
+  - Search indexes (Elasticsearch)
+  - Data warehouses (Redshift, BigQuery), data lakes (S3 + Athena)
+  - Backups, snapshots, replicas, archives
+
+Design questions:
+  - ACID or eventual consistency?
+  - Structured or unstructured?
+  - Read-heavy or write-heavy?
+  - How long does it live? (retention policy)
+  - What are the access patterns?
+```
+
+> **Module mapping:** Module 3 (Database Fundamentals), Module 4 (Caching), Module 8 (Storage Systems), Module 13 (Data minimization & retention).
+
+#### 3. Transforming Data
+
+Everything about *how raw input becomes useful output*. This is the "logic" of the system — what makes it more than a dumb pipe.
+
+```
+In scope:
+  - Business logic (booking validation, payment processing)
+  - API request/response shaping (BFF pattern)
+  - Data aggregation (the "last 30 days" dashboard query)
+  - ETL pipelines (raw logs → cleaned events → analytics)
+  - Search ranking, recommendation algorithms
+  - Image/video transcoding
+  - Encryption, anonymization, PII redaction
+  - AI/ML inference (image classification, recommendations)
+
+Design questions:
+  - Where does the transformation happen? (client, edge, server, batch)
+  - Sync (user waits) or async (fire-and-forget)?
+  - Stateless (just compute) or stateful (needs memory)?
+  - What happens when the transformation fails? (retry? dead letter? alert?)
+```
+
+> **Module mapping:** Touches everything. Module 11 (Event Sourcing, CQRS, CDC) is largely about *where* and *when* transformation happens.
+
+#### How to Use This Framing in the Interview
+
+When the interviewer asks "design X," don't immediately think "what services do I need?" Think:
+
+1. **What data is moving?** From where to where? How fast? How much?
+2. **What data is stored?** What's the access pattern? How long does it live?
+3. **What data is being transformed?** What business rules apply? What becomes meaningful from raw input?
+
+Then draw your system: storage on the right, transformation in the middle, movement on the left, with the user at the top and ops tools wrapping it all.
+
+> **Senior signal:** Naming these three elements in your opening ("Let's think about this as moving data, storing data, and transforming data — let me walk through each") shows a mental model that scales to any system, not just the one the interviewer happened to ask about. It signals seniority because it generalizes.
+
+---
+
 ### 1.8 Common Mistakes and How to Recover
 
 | Mistake | How to recover |
@@ -1216,6 +1319,62 @@ Fix: read-your-own-writes (route reads immediately after a write to the primary,
 
 **Graph databases (Neo4j):** Entities are nodes, relationships are edges. Great for social graphs, recommendation engines, fraud detection (finding connected accounts).
 
+#### In-Memory Databases — When Speed Beats Durability
+
+**In-memory databases** (Redis, Memcached) keep all data in RAM. The "what is RAM" mental model from the transcript: RAM is ~100× faster than SSD and ~1000× faster than spinning disk, but it's volatile (loses data on power off) and expensive per GB.
+
+```
+Disk (HDD):     ~100-200 MB/s sequential read
+SSD:            ~500-3500 MB/s sequential read
+RAM:            ~5,000-50,000 MB/s
+                and access times in nanoseconds (vs milliseconds for disk)
+```
+
+**Why in-memory:**
+
+```
+✓ Sub-millisecond reads
+✓ Perfect for: caching, session storage, real-time leaderboards,
+  rate limiting counters, pub/sub
+✗ Volatile (data lost on restart, unless persistence is configured)
+✗ Expensive (RAM costs more per GB than disk)
+✗ Whole dataset must fit in RAM (cluster of 256 GB machines, not petabytes)
+```
+
+**Redis vs Memcached:**
+
+| | Redis | Memcached |
+|--|-------|-----------|
+| Data structures | Strings, lists, sets, hashes, sorted sets, streams, geospatial | Strings only |
+| Persistence | Optional (RDB snapshots, AOF log) | None |
+| Replication | Built-in (primary-replica) | Client-side (the app writes to multiple nodes) |
+| Pub/Sub | Yes | No |
+| When to use | Default. Need rich data types or durability | Pure caching of simple key-value blobs at extreme scale |
+
+> **Interview tip:** "I'd reach for Redis first. If we discovered we needed a million-cached-items-per-second throughput at minimum memory cost, and our values are simple strings, I'd evaluate Memcached for its lower memory overhead."
+
+#### When to Reach for What — A Decision Tree
+
+```
+Q1: Does it need to survive a restart?
+    No  → In-memory (Redis, Memcached)
+    Yes → Continue
+
+Q2: Is the data relational (joins, transactions, complex queries)?
+    Yes → SQL (PostgreSQL, MySQL)
+    No  → Continue
+
+Q3: What's the access pattern?
+    Key → key-value (Redis, DynamoDB)
+    Document → document store (MongoDB, Firestore)
+    Time-series / write-heavy → wide-column (Cassandra, HBase)
+    Graph traversals → graph (Neo4j)
+    Search / full-text → search engine (Elasticsearch)
+    Analytics / aggregations → warehouse (Redshift, BigQuery)
+```
+
+> **Senior signal:** Being able to say *"for this requirement, I'd reach for X because of Y, and the alternative is Z with this trade-off"* is what separates the senior answer from "use Postgres." The tree above is the senior answer.
+
 ---
 
 ### 3.9 Module 3 — Quick Fire
@@ -1229,6 +1388,9 @@ Fix: read-your-own-writes (route reads immediately after a write to the primary,
 | Sharding vs replication? | Sharding splits data across servers. Replication copies the same data to multiple servers |
 | When does replication lag cause bugs? | When a user writes then immediately reads from a replica that hasn't synced yet |
 | When to use NoSQL? | Flexible schema, massive write throughput, or data that's naturally hierarchical and not relational |
+| Redis vs Memcached? | Redis has rich data types and optional persistence. Memcached is pure key-value strings, lower memory overhead, higher throughput ceiling |
+| Why are in-memory databases fast? | RAM access is ~100× faster than SSD and ~1000× faster than HDD; but volatile and expensive per GB |
+| Master-master vs master-slave replication? | Master-slave: one writer, many readers. Master-master: multiple writers, more conflict resolution, more failure modes |
 
 ---
 
