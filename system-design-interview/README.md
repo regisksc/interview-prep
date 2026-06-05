@@ -1273,6 +1273,43 @@ Add Server D at 120°:
 
 > **Senior signal:** Mentioning consistent hashing unprompted when discussing "how you'd add shards to a growing system" is a clear differentiator.
 
+#### Two More Sharding Strategies the Transcript Covers
+
+**Directory-based sharding:** A lookup service maps each key to its current shard.
+
+```
+shard_directory:
+  user_id "abc123"  → Shard 3
+  user_id "def456"  → Shard 1
+  user_id "ghi789"  → Shard 2
+  ... (millions of entries)
+```
+
+✓ Any key can live on any shard — fine-grained control.
+✓ Re-sharding only requires updating the directory, not moving data.
+✗ The directory is a single point of failure (or a complex distributed system).
+✗ One extra lookup per query (mitigated by caching the directory in memory).
+
+Used when the shard key has weird distribution (e.g., enterprise customers with much more data than free users) and you want to override hashing.
+
+**Geographical sharding:** Split the data by geography.
+
+```
+Shard "us-east":     users with US east-coast addresses
+Shard "us-west":     users with US west-coast addresses
+Shard "eu-central":  users in the EU
+Shard "apac":        users in Asia-Pacific
+```
+
+✓ Latency to the user is minimized — their data lives in a nearby region.
+✓ Compliance with data-residency rules (EU user data stays in the EU).
+✗ Cross-region queries are slow and expensive (joining data across shards).
+✗ "User moved from Berlin to Tokyo" requires a shard migration.
+
+> **Interview tip:** "For a multi-region app with residency requirements, I'd shard by region. For a single-region app with uniform user load, hash-based is simpler and faster. For an enterprise SaaS where some customers are huge, directory-based lets us put the whales on dedicated shards." Naming the choice with its reason is the senior answer.
+
+> **Sharding and the CAP theorem:** Sharding is fundamentally an AP choice (you accept that cross-shard queries may be eventually consistent). Trying to make a heavily-sharded system strongly consistent is a months-long, error-prone project. Design for it from the start, or don't shard.
+
 ---
 
 ### 3.7 Replication
@@ -1306,6 +1343,38 @@ User updates profile photo
 ```
 
 Fix: read-your-own-writes (route reads immediately after a write to the primary, or route to replica only after a delay).
+
+**Primary-primary (master-master) replication:**
+
+```
+Node A ◄──► Node B
+writes     writes
+   │           │
+   └─────┬─────┘
+         │
+   both nodes accept writes and replicate to each other
+```
+
+**Why it's appealing:** Two regions can both accept writes — US users write to US, EU users write to EU, with low latency on both sides. No single write bottleneck.
+
+**Why it's almost never used:**
+
+```
+✗ Conflict resolution is hard:
+  Two users edit the same record on different nodes simultaneously.
+  Which one wins? Last-write-wins (LWW) loses data; vector clocks are
+  complex; CRDTs only work for some data types.
+✗ Replication lag becomes bidirectional:
+  Both nodes are behind each other; "is this write visible?" is ambiguous.
+✗ Failure modes multiply:
+  Split-brain: network partition → each node thinks it's the only survivor
+  → both accept writes → unrecoverable divergence.
+✗ Most apps can use a single-writer pattern:
+  Pick the home region for writes; the other region is read-only with
+  async replication. Avoids 90% of the conflict complexity.
+```
+
+> **Interview tip:** "I'd use primary-replica with a single primary in one region. If we need multi-region writes, I'd consider either (a) routing writes to the home region with the user knowing about the latency, or (b) per-tenant partitioning — different tenants in different regions, no cross-region write conflict. I'd avoid multi-master unless we had a specific, well-understood conflict-resolution strategy."
 
 ---
 
@@ -3039,11 +3108,48 @@ Stateless (good for scaling):
 
 ### 6.3 Horizontal vs Vertical Scaling
 
+> **Why this section matters:** Every "how would you scale this?" answer has a vertical phase and a horizontal phase. The senior answer names which you're in, and why.
+
 **Vertical scaling (scale up):** Buy a bigger server. 4 CPU → 32 CPU, 32 GB → 512 GB RAM. Simple but has a ceiling — the largest available machine — and creates a single point of failure.
 
 **Horizontal scaling (scale out):** Add more servers. 1 server → 10 servers → 100 servers. Requires your service to be stateless. Much higher ceiling and no single point of failure.
 
 In practice: vertical scaling is the first move (simple), horizontal scaling is the endgame (resilient).
+
+#### Decision Framework
+
+```
+Start here:    Vertical (cheaper, faster, no code changes)
+Hit a wall:    Add a single replica, read-split
+               (the cheap horizontal step — read replicas)
+Still growing: Full horizontal — stateless app servers
+               behind a load balancer, with the DB either
+               scaled vertically (with bigger machines)
+               or sharded horizontally (the expensive step).
+
+Why the order matters:
+  + Vertical:        swap a bigger box. 30 min of downtime.
+  + Read replicas:   add a follower. Hours, not weeks.
+  + Sharding:        refactor the data model, migrate the data,
+                     rewrite queries. Weeks to months.
+  Each step is increasingly invasive. Don't skip to sharding
+  if vertical + a single replica handles your load.
+```
+
+#### Databases Are Different From App Servers
+
+This is where horizontal scaling gets complicated. App servers are *stateless* — easy to clone horizontally. Databases are *stateful* — every node has the data, and keeping it consistent across nodes is the whole problem.
+
+```
+Database horizontal scaling, in order of difficulty:
+  1. Bigger machine           (vertical)             — minutes
+  2. Read replicas            (scale reads)          — hours
+  3. Primary + read replicas in another region  (geo reads) — days
+  4. Sharding                 (split data)           — weeks
+  5. Master-master            (split writes)         — avoid unless necessary
+```
+
+> **Interview tip:** "I'd scale our PostgreSQL primary vertically first — bump to a 64-CPU instance with 256 GB RAM. Once we hit 80% of that capacity, I'd add 2 read replicas for the read-heavy queries (the therapist list page, the analytics dashboard). If we outgrow that, I'd consider sharding by `user_id` — but only at that point, because sharding is a months-long project."
 
 ---
 
