@@ -1394,6 +1394,113 @@ Step 4: Next read will be a cache miss → fetches fresh data from PostgreSQL �
 
 ---
 
+### 4.5.1 The Three Places a Cache Can Live
+
+> **Why this section is here:** "Where does the cache go?" has three different answers depending on the use case. The transcript covers all three and you'll be expected to know which to reach for.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Browser cache  →  on the user's local device                 │
+│ 2. Server cache   →  on the API server (or a separate cache box) │
+│ 3. Database cache →  inside the DB or in front of the DB        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 1. Browser Cache (Client-Side)
+
+The browser stores copies of HTML, CSS, JS, images on the user's disk. On a revisit, the browser can load from local disk instead of asking the server.
+
+```
+First visit to https://app.com:
+  Browser: GET /index.html
+  Server:  200 OK + Cache-Control: max-age=7200
+  Browser stores the file; for the next 2 hours, the browser
+  uses the local copy without asking the server.
+
+Cache-Control: max-age=7200  → cache for 7200 seconds (2 hours)
+ETag: "abc123"               → revalidate when max-age expires
+```
+
+**How to check cache hit/miss in your browser:**
+
+```
+Open DevTools → Network tab → click a request
+  → look at the size column: "(disk cache)" or "(memory cache)" = hit
+  → look at response headers: "x-cache: HIT" or "x-cache: MISS"
+
+Developers can disable cache from DevTools:
+  Chrome: DevTools → Network tab → ☑ "Disable cache" checkbox
+  Firefox: DevTools → Network tab → ⚙ "Disable cache" (when DevTools open)
+```
+
+**What's stored:** HTML, CSS, JS bundles, images, fonts. Not user-specific API responses (one user's data would be served to another).
+
+**When NOT to rely on browser cache:** Any data that must be fresh (booking availability, payment status, auth state).
+
+#### 2. Server Cache (Application / Distributed Cache)
+
+This is the "Redis in front of PostgreSQL" pattern. The cache lives in the application tier — either in-process (in-memory in the app server), in a local cache (Caffeine, Guava), or in a distributed cache (Redis, Memcached).
+
+**In-process vs distributed:**
+
+```
+In-process cache (e.g., Caffeine in Java, lru_cache in Python):
+  ✓ Zero network hop, sub-microsecond
+  ✗ Each app server has its own copy → inconsistent across servers
+  ✗ Lost on app server restart
+  ✗ Wastes memory on every server
+
+Distributed cache (Redis, Memcached):
+  ✓ Single source of truth across all app servers
+  ✓ Survives app server restarts
+  ✗ Network hop (~0.5-2ms in same datacenter)
+  ✗ Needs its own cluster to manage
+```
+
+> **Interview tip:** "For sub-millisecond reads on truly hot data (e.g., a feature flag), I'd use a small in-process LRU cache *in addition to* Redis. For everything else, Redis is the default." This is the layered-cache pattern.
+
+#### 3. Database Cache (Inside or In Front of the DB)
+
+The database has its own caches you don't have to manage:
+
+```
+Buffer pool / page cache:
+  - The DB holds recently-read disk pages in RAM
+  - First read of a row: page goes from disk → buffer pool → query
+  - Second read: page is already in the buffer pool, no disk I/O
+  - Configured automatically; you just give the DB enough RAM
+
+Query result cache (some DBs):
+  - Caches the result of a SELECT, keyed by the query text
+  - Invalidation is tricky (any write to the underlying table)
+  - Most modern apps prefer an external cache (Redis) for clarity
+
+Materialized views:
+  - Pre-computed result of an expensive query, stored on disk
+  - Refreshed periodically (every 5 min, every hour)
+  - Great for "last 24 hours of bookings" dashboards
+```
+
+> **Interview tip:** "Tuning Postgres, I'd first check `shared_buffers` and `effective_cache_size` to make sure the buffer pool is large enough — the cheapest win in DB performance is letting Postgres keep hot pages in RAM." Knowing to look at DB internals is a senior signal.
+
+#### The Cache Hit Ratio — The Single Number to Watch
+
+```
+Hit ratio = cache hits / (cache hits + cache misses)
+
+90% hit ratio = 9 of 10 requests served from cache
+99% hit ratio = 99 of 100 requests served from cache
+
+A 99% hit ratio on a 10,000 RPS service:
+  - 9,900 requests served from cache (fast, cheap)
+  - 100 requests hit the database (slow, expensive)
+  - 100x reduction in database load just from caching
+```
+
+> **Senior signal:** "I'd track cache hit ratio as an SLI. If it drops below 95% on the therapist profile cache, that signals something is wrong — either TTL is too short, the cache size is too small (evictions!), or upstream traffic patterns changed." Knowing which number to watch and what to do when it's wrong is the senior move.
+
+---
+
 ### 4.6 Write-Through — Keeping Cache Always Warm
 
 Write-through solves the cold start problem by populating the cache on every write, not just on reads.
@@ -1421,6 +1528,31 @@ Read path:
 2. Cache may fill up with data that's never read again (you wrote it on update, but nobody read it).
 
 **When to use:** When your system is very read-heavy and the cold start latency (from cache-aside) is unacceptable. Search index warming is a common use case.
+
+---
+
+### 4.6.1 Write-Around — Skip the Cache on Writes
+
+The third write policy the transcript covers. Useful when writes happen to data that *isn't read often* — you don't want the cache polluted with cold entries.
+
+```
+Write path:
+  Step 1: Therapist updates a rarely-read field (e.g., a "last_login" timestamp)
+  Step 2: App writes directly to PostgreSQL ONLY
+  Step 3: Cache is untouched
+  Step 4: Next read will be a cache miss → fetches from DB → populates cache
+
+Read path:
+  Same as cache-aside.
+```
+
+**Pros:** Doesn't pollute the cache with data that may never be read again. Cheaper writes.
+
+**Cons:** The first read after a write is always a cache miss → cold start. Same downside as cache-aside for write-then-immediate-read patterns.
+
+**When to use:** When writes are mostly to data that won't be re-read soon (analytics ingest, audit logs, telemetry). You'd pair write-around with cache-aside reads.
+
+> **Interview framing:** "If I have a user_last_seen field that gets updated on every API call but is read once a day by an admin dashboard, I'd use write-around. Putting it in the cache would evict more useful data and never get re-read."
 
 ---
 
@@ -1484,6 +1616,19 @@ New item added → LFU removes [C] (fewest total accesses)
 Better when some items are structurally more popular than others (a celebrity's profile vs. an inactive user's profile). LFU retains the consistently popular items even if they weren't accessed in the last few minutes.
 
 **For an interview:** Say "I'd use LRU as the eviction policy since it's the sensible default. If we found that a small number of profiles (popular therapists) were disproportionately popular, I'd consider LFU to protect those from eviction."
+
+**FIFO — First In, First Out**
+
+Remove the *oldest* item by insertion time, regardless of how often it's been accessed.
+
+```
+Cache:   [A inserted 9 min ago] [B inserted 5 min ago] [C inserted 1 min ago]
+New item arrives → FIFO evicts A (oldest insertion)
+```
+
+Trivially simple to implement (a queue). Works for caches where the access pattern is "recent insertions are most likely to be read again soon" — which is the *opposite* of LRU's assumption. Almost always worse than LRU in practice, which is why it shows up mainly as a baseline in benchmarks.
+
+> **Interview framing:** "I'd use LRU. FIFO is simpler but evicts based on age, not usefulness — an item that was just inserted but is being read heavily could be evicted before a stale item that hasn't been touched in an hour." Knowing *why* you'd pick LRU over FIFO is the senior signal.
 
 ---
 
@@ -1641,6 +1786,10 @@ With CDN:
 | What is a cache stampede? | When many requests simultaneously get a cache miss and all hit the database at once |
 | What is a CDN? | A geographically distributed cache for static content — serves users from nearby servers |
 | What should NEVER be cached? | Data that must be absolutely current — slot availability, payment state, auth tokens |
+| Three places a cache can live? | Browser (on user's device), server (Redis in front of DB), inside the DB (buffer pool) |
+| Cache-aside vs write-around? | Cache-aside: misses repopulate the cache on read. Write-around: writes skip the cache entirely |
+| When would you use write-around? | For data that's written but rarely re-read (analytics, audit fields) — avoids polluting the cache |
+| What's a good cache hit ratio target? | 95%+ for hot data. Below that, you have an eviction or TTL problem to investigate |
 
 ---
 
