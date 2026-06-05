@@ -1925,6 +1925,145 @@ Stable — inserting new items doesn't affect other pages. O(1) to seek.
 
 ---
 
+#### API Paradigms — REST vs GraphQL vs gRPC
+
+> **Why this matters:** "What API style would you use?" is a very common design follow-up. The right answer isn't "REST" — it's "REST, *because* ..." with the trade-offs named.
+
+| | REST | GraphQL | gRPC |
+|--|------|---------|------|
+| Wire format | JSON (usually) | JSON | Protocol Buffers (binary) |
+| Transport | HTTP/1.1 (or HTTP/2) | HTTP/POST | HTTP/2 |
+| Schema | Implicit, documented in OpenAPI | Strongly typed, single schema | Strongly typed, defined in `.proto` |
+| Endpoint shape | Many URLs, one resource each | One URL, client specifies fields | One service, many methods |
+| Caching | Easy (HTTP semantics) | Hard (everything is POST) | Hard (everything is POST over HTTP/2) |
+| Browser support | Trivial | Trivial | Needs a proxy (grpc-web) |
+| Best for | Public APIs, simple CRUD | Aggregating data from many sources, mobile clients with varying needs | Internal microservice-to-microservice |
+
+**REST trade-offs:**
+
+```
+✓ Pros:
+  - Easy to understand, easy to debug (curl + browser)
+  - HTTP semantics: caching, status codes, idempotency, all free
+  - Plays well with web, mobile, third parties
+✗ Cons:
+  - Over-fetching: GET /users/123 returns the full user object even
+    when the client only needs the name
+  - Under-fetching: to get a user + their last 5 orders, you make
+    2+ requests (N+1 problem)
+  - Adding new fields is easy; reshaping the response is hard
+```
+
+**GraphQL trade-offs:**
+
+```
+✓ Pros:
+  - Client specifies exactly which fields it needs (no over/under-fetch)
+  - One round-trip to fetch data spread across many resources
+  - Strongly typed schema; auto-generates docs and client SDKs
+✗ Cons:
+  - Complex queries can hammer the database (no automatic N+1 protection)
+  - All requests are POST; HTTP caching layers don't help
+  - GraphQL errors return HTTP 200 with errors in the body —
+    monitoring tools that key on 4xx/5xx miss them
+  - Caching is per-query, not per-resource
+```
+
+**gRPC trade-offs:**
+
+```
+✓ Pros:
+  - 3-10x smaller payloads than JSON (binary protobuf)
+  - HTTP/2 multiplexing: many requests over one connection
+  - Streaming (client, server, bidirectional) is built in
+  - Strongly typed contracts enforced by .proto files
+✗ Cons:
+  - Not human-readable — debugging requires grpcurl or similar
+  - Browsers can't natively speak gRPC; you need grpc-web + a proxy
+  - Tooling is less ubiquitous than REST
+```
+
+> **Senior interview framing:** "For our public mobile API, I'd use REST — third parties consume it, browsers can hit it, and HTTP caching is valuable. For internal service-to-service calls between our Go booking service and Python payment service, I'd use gRPC — strongly typed, fast, and the team owns both ends so the learning curve is fine. I would *not* use GraphQL unless we had a clear aggregation problem (e.g., a screen that pulls from 6 services) — for a standard CRUD app, it adds complexity without payoff."
+
+#### API Versioning — Don't Break Clients in Production
+
+You will change your API. Old clients in production won't get the memo. You need a strategy.
+
+```
+URL versioning (REST):
+  /api/v1/users/123     ← old clients
+  /api/v2/users/123     ← new clients
+  Both run side-by-side until v1 is deprecated (give 6-12 months notice)
+  Easiest to reason about. Easy to route at the load balancer.
+
+Header versioning:
+  GET /api/users/123
+  Accept: application/vnd.myapi.v2+json
+  Cleaner URLs. Harder to test in a browser.
+
+GraphQL: deprecate fields, don't break the schema
+  type User {
+    name: String @deprecated(reason: "Use fullName")
+    fullName: String
+  }
+  Clients keep working; new ones use fullName.
+```
+
+> **Interview tip:** "If we change the user object in a way that breaks old clients, we'd ship v2 alongside v1. The mobile app would force-upgrade users on a deadline (the app store policy gives us 90 days). For the partners using our public API, we'd give 12 months notice and run both versions in parallel."
+
+#### CORS — Why the Browser Blocks Your API
+
+**Cross-Origin Resource Sharing (CORS)** is a browser security mechanism. By default, a web page on `https://app.com` *cannot* call an API on `https://api.app.com` — the browser blocks it as a same-origin policy violation.
+
+```
+Browser: "I'm on https://app.com trying to call https://api.app.com.
+          Different origin. Unless the API says it's OK, I block this."
+
+Server's response: "Access-Control-Allow-Origin: https://app.com"
+Browser: "OK, the API explicitly allows this origin. Letting the request through."
+```
+
+> **Interview tip:** "For our public API, we'd set CORS to allow only our known front-end origins (https://app.com, https://admin.app.com), not `*` (everything). For server-to-server or mobile clients, CORS doesn't apply — it's a browser-only check." Mobile engineers often forget that CORS is a *browser* thing, not a security boundary.
+
+#### Idempotency in GET Requests — Safe, Not Idempotent
+
+A subtle but important distinction. The transcript makes a clean point that interviewers sometimes probe:
+
+```
+GET requests should be:
+  - SAFE: calling them changes no server state. (No "this is the
+          3rd time you pinged this endpoint" side effect.)
+  - IDEMPOTENT: calling them many times returns the same result
+                (within an acceptable staleness window).
+
+A GET /api/therapists/123 is both safe and idempotent.
+A GET /track-click?user=alice&ad=42 is NOT safe — every call
+  logs a click event. Even though the *response* might be the same,
+  the server's state changed.
+```
+
+> **Interview framing:** "If we need to track 'user clicked this,' that endpoint should be a POST (mutates state), not a GET. GETs are for reads that don't change anything."
+
+#### Common Pagination / Filtering Patterns
+
+```
+Offset pagination (simple, painful at scale):
+  GET /products?limit=20&offset=40
+  Issue: if new products are added, results shift. Also O(offset) to seek.
+
+Cursor pagination (recommended):
+  GET /products?limit=20&after=cursor_xyz
+  Stable, fast. Downside: can't jump to "page 5" directly.
+
+Filtering:
+  GET /orders?status=shipped&start_date=2026-01-01&end_date=2026-01-31
+  GET /products?category=electronics&min_price=50&max_price=500
+  Always set max bounds on filters to prevent abuse
+  (e.g., limit=20 default, limit=100 max).
+```
+
+---
+
 ### 5.2 WebSockets vs Server-Sent Events vs Long Polling
 
 | | Long Polling | Server-Sent Events (SSE) | WebSockets |
