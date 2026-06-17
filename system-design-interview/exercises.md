@@ -1363,16 +1363,63 @@ Discount Codes:
 
 | Component | Purpose | Example Technologies |
 |-----------|---------|---------------------|
-| Load Balancer | Distribute traffic | NGINX, HAProxy, AWS ALB |
-| Cache | Fast reads | Redis, Memcached |
-| Database (SQL) | Structured data | PostgreSQL, MySQL |
-| Database (NoSQL) | Flexible schema | MongoDB, DynamoDB |
-| Queue | Async processing | SQS, Kafka, RabbitMQ |
-| CDN | Static assets | CloudFront, Cloudflare |
-| Object Storage | Files | S3, GCS |
-| WebSocket | Real-time | Socket.io, WS |
-| Search | Full-text search | Elasticsearch, Algolia |
-| Monitoring | Observability | Prometheus, Datadog |
+| Load Balancer (L4) | TCP/UDP distribution | AWS NLB, HAProxy (TCP), LVS |
+| Load Balancer (L7) | HTTP distribution, header routing | AWS ALB, NGINX, Envoy, Traefik |
+| API Gateway | Cross-cutting auth, rate limit, routing | Kong, AWS API Gateway, Apigee, Cloudflare |
+| BFF | Per-client API shaping | Custom (per-client service) |
+| Service Mesh | East-west mTLS, retries, observability | Istio, Linkerd, Consul Connect |
+| Cache | Fast reads (L2) | Redis, Memcached |
+| Multi-level cache | L1 (process) + L2 (Redis) + L3 (CDN) | Caffeine + Redis + CloudFront |
+| Database (SQL) | Structured data, ACID | PostgreSQL, MySQL |
+| Database (NoSQL — key-value) | Sessions, rate limits, locks | Redis, DynamoDB, etcd |
+| Database (NoSQL — document) | Catalog, profile, content | MongoDB, Firestore, DocumentDB |
+| Database (NoSQL — wide-column) | Write-heavy time-series | Cassandra, ScyllaDB, HBase |
+| Database (NoSQL — graph) | Relationships, fraud, recommendations | Neo4j, Neptune, JanusGraph |
+| Search engine | Full-text + faceted | Elasticsearch, OpenSearch, Meilisearch |
+| Columnar warehouse | Analytics | Redshift, BigQuery, ClickHouse |
+| Queue | Async, decoupling | SQS, RabbitMQ, Google Pub/Sub |
+| Log-based stream | Event sourcing, replay | Kafka, Kinesis, Pulsar |
+| Sequencer | Monotonic IDs | Snowflake, ULID, UUIDv7 |
+| CDN | Edge cache, DDoS, edge compute | Cloudflare, Fastly, Akamai, CloudFront |
+| Object Storage | Blobs, backups | S3, GCS, Azure Blob, MinIO |
+| Block Storage | DB volumes | EBS, Persistent Disk |
+| WebSocket | Real-time bidirectional | Socket.io, native WS, Pusher |
+| SSE | One-way push | Native EventSource, Server SDK |
+| MQTT | IoT pub/sub | HiveMQ, Mosquitto, AWS IoT Core |
+| WAF | OWASP Top 10 blocking | AWS WAF, Cloudflare WAF, ModSecurity |
+| DNS | Name resolution + routing | Route 53, Cloudflare DNS, NS1 |
+| Secrets manager | API keys, DB passwords | AWS Secrets Manager, HashiCorp Vault |
+| Feature flag | Decouple deploy from release | LaunchDarkly, Unleash, Statsig |
+| CI/CD | Build + deploy | GitHub Actions, GitLab CI, Jenkins, Spinnaker |
+| Monitoring | Metrics + dashboards | Prometheus + Grafana, Datadog |
+| Log aggregation | Centralized logs | ELK, Loki, Splunk, Datadog |
+| Tracing | Distributed request traces | Jaeger, Zipkin, OpenTelemetry, Datadog APM |
+| Error tracking | Front-end + back-end errors | Sentry, Bugsnag, Rollbar |
+| Container orchestration | Deploy + scale containers | Kubernetes, ECS, Nomad |
+
+### Algorithms Cheat Sheet
+
+> **Interview relevance: Differentiator.** A senior reference card. The Core algorithms (consistent hashing, token bucket, quorum) show up unprompted; the rest (CRDT, HyperLogLog, Bloom filter) are top-of-band. Don't try to memorize all of them — internalize the column "when to mention."
+
+> **The algorithms you should be able to name and explain in an interview, organized by module.**
+
+| Module | Algorithm | When to mention |
+|--------|-----------|-----------------|
+| Caching | LRU, LFU, ARC, W-TinyLFU | "I'd use LRU for the in-memory cache; LFU is better when access frequency is skewed" |
+| Load Balancing | Round-robin, weighted, least-conn, IP-hash, consistent hashing | "Round-robin for uniform; least-conn for variable time; IP-hash for sticky sessions" |
+| Rate Limiting | Fixed window, sliding log, sliding counter, token bucket, leaky bucket | "Token bucket gives burst tolerance; leaky bucket smooths egress" |
+| Consistent Hashing | Ring-based, virtual nodes | "When sharding a cache, consistent hashing means adding a node only rebalances 1/N keys" |
+| Consensus | Paxos, Raft | "For multi-region consistency, you need consensus; Raft is more understandable than Paxos" |
+| CRDT | Counters, sets, registers | "For AP systems with concurrent edits, CRDTs auto-merge" |
+| Snapshot | Periodic state capture | "For event sourcing, snapshot every 100 events to keep replay fast" |
+| Snowflake | Time + machine + sequence | "For ordering events across machines, Snowflake-style IDs are monotonic and unique" |
+| Leader election | Raft, etcd | "For a single-leader system, elect via Raft; if leader dies, election in <5s" |
+| Merkle tree | Hash tree for diff detection | "For anti-entropy between replicas, Merkle trees detect which keys differ" |
+| Bloom filter | Probabilistic set membership | "Cache a Bloom filter of 'is this key in the DB?' to avoid a miss-penalty" |
+| HyperLogLog | Cardinality estimation | "Estimate unique visitors in a stream in 12 KB" |
+| Count-min sketch | Frequency estimation | "Estimate top-K items in a stream" |
+| Two-phase commit | Distributed transactions | "For atomic cross-DB writes — but it's slow and fragile" |
+| Saga | Compensating transactions | "For cross-service business processes where 2PC is too rigid" |
 
 ---
 
@@ -1384,3 +1431,61 @@ Discount Codes:
 4. **Explain out loud** (practice communication)
 5. **Review the solution** (compare with your approach)
 6. **Identify knowledge gaps** (study weak areas)
+
+### Scenario Playbook
+
+> **Interview relevance: Core.** Pick the right canonical pattern (chat = WS + presence + message log; feed = fan-out hybrid; ride-sharing = geo-index + matching) is the single biggest senior signal in walkthrough questions. This table is the cheat sheet.
+
+> **The "what design do you reach for" cheat sheet. The senior move is naming the canonical pattern for each scenario.**
+
+| Scenario | Canonical design | Key components |
+|----------|------------------|----------------|
+| URL shortener | Stateless API + KV store + counter | App, Redis, base62 encoding, redirect |
+| Rate limiter | Token bucket in Redis | Redis, Lua script, token bucket |
+| Pastebin | Object storage + DB index | S3, Postgres, presigned URLs |
+| Notification system | Pub/Sub + queue + provider adapters | Kafka, worker pool, APNs/FCM/SMTP |
+| File upload | Direct-to-S3 with presigned URL | S3, presigned URL, async virus scan |
+| Image thumbnail | Object event triggers async worker | S3 event → SQS → Lambda/worker |
+| Chat | WebSocket gateway + message log | WS, Redis (presence), Cassandra (history) |
+| Feed | Fan-out-on-write for normal users; hybrid for celebs | Kafka, fanout workers, Redis (timeline) |
+| Ride-sharing | Geo-index in Redis + matching service | Redis GEO, Kafka (events), WebSocket |
+| Food delivery | Same as ride-sharing, but restaurants not drivers | + restaurant mgmt + delivery tracking |
+| Hotel booking | Inventory lock + saga for payment | DB unique constraint, saga, payment service |
+| E-commerce cart | Per-user KV with TTL | Redis hash, TTL on cart, checkout saga |
+| Twitter | Fan-out hybrid + ranking | Kafka, fanout workers, timeline cache |
+| Instagram | Same as Twitter + media pipeline | + S3, CDN, image workers |
+| YouTube | Same as Instagram + transcoding | + video chunking, HLS/DASH |
+| WhatsApp | End-to-end encryption + presence | Signal Protocol, WebSocket, Cassandra |
+| Netflix | CDN + recommendation + A/B | Open Connect CDN, ML, A/B testing |
+| Google Search | Crawler + indexer + query pipeline | Crawler, inverted index, BM25, re-ranker |
+| Google Drive | File storage + sync + sharing | S3-like, CRDT or operational transform |
+| Google Maps | Tile rendering + routing + traffic | Tile servers, road graph, traffic ingest |
+| Stock trading | Order book + matching engine + ledger | In-memory book, append-only ledger, FIX |
+| Crypto exchange | Order book + cold/hot wallet + ledger | Same + custody layer, hot/cold split |
+
+> **The interview question to ask yourself for any of these:** "What if 10x traffic hits? What's the bottleneck? Where do I add sharding, caching, or async?" If you can answer that for any of the 25 exercises, you're interview-ready.
+
+### Design Anti-Patterns
+
+> **Interview relevance: Differentiator.** Committing one of these live is the most common way to lose points. The "sharding by user_id (premature)" and "multi-region active-active (premature)" rows are the highest-frequency traps.
+
+> **A focused list of things that signal junior thinking in the interview. Internalize this.**
+
+| Anti-pattern | Why it's bad | What to say instead |
+|--------------|-------------|---------------------|
+| "I'll use microservices" | You don't know the problem yet | "I'd start with a modular monolith; split when there's a clear team or scaling reason" |
+| "I'll use Redis" (no reason) | Adds complexity, an extra failure mode | "Reads are 100x writes, so I'd cache the hot 1% of items in Redis with TTL" |
+| "I'll use Kafka" (no reason) | Kafka is a 6-month project | "I need event-driven processing with replay; Kafka fits" |
+| Drawing 3 boxes | Real systems have cache, queue, storage, observability | "Presentation, edge, app, cache, data, async, observability — the standard 7-tier" |
+| "Add more servers" | Not every problem is capacity | "Let me first check if this is a throughput, latency, or correctness problem" |
+| Silent drawing | Interviewer can't see your reasoning | "I'm adding a queue here *because* the user shouldn't wait for thumbnail generation" |
+| "Sharding by user_id" (premature) | Sharding is a 6-month project | "I'd start with vertical + read replicas; shard when single-DB QPS > 5K" |
+| "Multi-region active-active" (premature) | Doubles infra cost, complex | "I'd start with one region + DR; multi-region when the SLA demands it" |
+| "Use a circuit breaker" (no specifics) | Where? For what threshold? | "Circuit breaker in front of Stripe: 5 failures in 10s → open, half-open after 30s" |
+| "NoSQL is more scalable" | Out of context | "Postgres can scale to billions of rows; NoSQL is for specific access patterns" |
+| "Set the TTL to 60 seconds" (no reason) | Arbitrary | "60s matches our SLA: stale-by-1-minute is acceptable for this data" |
+| "Use a CDN" (for an API) | CDNs cache static content | "I'd use a CDN for the static assets, and Redis for the API cache" |
+| "Use a load balancer" (no type) | LB at what layer? | "L7 ALB for HTTP routing, L4 NLB for raw TCP" |
+| "Set up a queue" (no key) | Loses ordering | "Queue with key=orderId, so events for the same order are processed in order" |
+| Ignoring failure modes | Interviewer asks "what if X dies?" | "If Redis dies, the DB takes the read load; booking still works, just slower" |
+

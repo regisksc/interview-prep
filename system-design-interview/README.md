@@ -37,6 +37,8 @@ A system design interview is **not** a trivia test. There is no single correct a
 
 > **Why this section is here:** Before you can design a system, you need a mental model of what a real production app looks like. The transcript opens with this — and it's the boxes you should be able to draw in 30 seconds if the interviewer asks "give me the standard architecture."
 
+> **Senior signal — anchor in the system design problem space:** System design is the discipline of translating functional and non-functional requirements into a blueprint, then making tradeoffs on scalability, cost, security, and complexity. That framing is what makes the discipline senior-level work: the answer is never a single architecture, it's the architecture whose tradeoffs match *these* requirements. Senior candidates say it explicitly: "There is no single right answer — only the right answer for *this* problem at *this* scale."
+
 When a senior engineer describes a "production-ready app," they mean a system that has more than just the app and database. Here's the full box diagram, with each box's job:
 
 ```
@@ -154,6 +156,129 @@ CDN (Cloudflare, Fastly, CloudFront, Akamai):
 ```
 
 These were covered in detail in Module 4 (caching) and Module 10 (mobile), but they belong in your "default architecture" mental model.
+
+#### 1.0.1 High-Level vs Low-Level System Design
+
+> **Interview relevance: Differentiator.** A senior signal — naming the altitude early shows you've seen both modes. Unlikely to be asked directly, but if the interviewer pushes you in either direction, knowing this distinction lets you pivot smoothly.
+
+The interview itself opens with a critical distinction: **what altitude are you designing at?** Interviewers test this by pushing you either up (toward infrastructure) or down (toward modules) at some point in the conversation.
+
+```
+HIGH-LEVEL (what an interview tests):
+  Front-end ←→ API Gateway ←→ App Tier ←→ Data Tier (DB + Cache + Storage)
+  Plus: load balancers, async queues, CDN, observability, CI/CD.
+
+LOW-LEVEL (what an HLD/LLD split tests):
+  Within a single service:
+    Controllers → Services → Repositories → Data Sources
+    OR: API layer → Domain layer → Infrastructure layer (Clean/Hexagonal)
+    OR: handlers → use-cases → adapters
+  Plus: in-process concurrency (threads, actors, async/await),
+  module boundaries, in-process caching, internal interfaces.
+```
+
+| | High-level design | Low-level design |
+|---|---|---|
+| Granularity | Systems, services, queues, databases | Classes, modules, threads, methods |
+| Drives | Service boundaries, data flow, infra choices | APIs, dependency direction, in-process concurrency |
+| What it answers | "How do these boxes talk, and how do they fail?" | "How is this service built, and how is it testable?" |
+| Typical interview | System design round (45 min) | Coding round, machine coding, OOD |
+| In this course | Modules 1, 6, 7, 11 | Out of scope (see your Flutter/clean-architecture guide) |
+
+> **Senior signal:** When the interviewer says "design a chat system," the first sentence out of your mouth should disambiguate the altitude. Try: *"I'll design this at the high level — the services, queues, and storage. If you'd like, I can zoom into a specific service and sketch the modules."* This single sentence signals you know the two modes and can move between them.
+
+> **What this course covers:** This course is overwhelmingly high-level system design for system design interviews. When we mention things like "controller vs service" it is for *interview framing*, not implementation coaching.
+
+#### 1.0.2 The Availability Ladder — How Much Uptime Do You Actually Need?
+
+> **Interview relevance: Core.** A standard "how much do you really need" question. Pair with the SLO/SLA module. Candidates who default to "99.999% always" lose points; candidates who propose 99.9% for an MVP and explain why win.
+
+There is a critical point about the cost of uptime. Your architecture should match the *smallest* availability number the business can live with. Choosing 5-nines when 3-nines would do is a senior mistake in the opposite direction — over-engineering for requirements that aren't there.
+
+```
+99%      (2 nines)   ≈ 3.65 days downtime/year
+99.9%    (3 nines)   ≈ 8.7 hours downtime/year
+99.99%   (4 nines)   ≈ 52 minutes downtime/year
+99.999%  (5 nines)   ≈ 5 minutes downtime/year
+```
+
+**What each rung looks like architecturally:**
+
+```
+99%      (one machine, one region, no replication)
+            → A single EC2 with a managed database. Tolerate ~3 days of
+              downtime a year. Fine for internal tools, hobby projects,
+              weekend hackathons.
+            → Concrete: a status page for a college class project.
+
+99.9%    (replication within a region, managed failover)
+            → Multi-AZ deployment with RDS Multi-AZ, an ALB, two app
+              servers. Tolerate ~8 hours of downtime a year. Most
+              "normal" SaaS apps live here.
+            → Concrete: a B2B SaaS billing tool, internal admin
+              dashboards, MVPs in production.
+
+99.99%   (active-active in one region, multi-AZ DB, RPO ≈ 0)
+            → Multi-AZ with synchronous replicas, automated failover,
+              load-balanced stateless app tier, health-checked deploys.
+              ~52 minutes downtime a year.
+            → Concrete: a payment authorization service, an e-commerce
+              checkout, a B2C product used 24/7.
+
+99.999%  (multi-region active-active, automated failover, chaos-tested)
+            → Active-active in at least two regions, async replication,
+              traffic re-routing on regional failure, regular game days
+              and chaos drills. ~5 minutes downtime a year.
+            → Concrete: HFT order-matching, real-time ad bidding,
+              emergency services dispatch, 911-equivalent systems.
+```
+
+> **Senior signal — refuse the "always 99.999%" trap:** When the interviewer says "design a chat app," the wrong answer is to default to 5-nines architecture. The right answer is to *ask* — or propose a 3-nines target and explain the tradeoff. The cost of 99.999% is roughly 10x the cost of 99.9%. Senior engineers don't pay for capacity they don't need.
+
+#### 1.0.3 Multi-Tier Architecture — The Classical Decomposition
+
+> **Interview relevance: Differentiator.** The vocabulary is "present" in target's existing diagram; the explicit tier names (presentation / business / data) are an extra framing that helps you remember to draw all 8 boxes. Useful but unlikely to be asked as a discrete topic.
+
+Almost every production system is described in **tiers**. Even in a microservices world, the tiers are the layers of the *request path* inside a single service.
+
+```
+Three-tier (the classical decomposition):
+  PRESENTATION TIER    — UI, client app, API gateway (request shape)
+  LOGIC / APPLICATION  — business rules, validation, orchestration
+  DATA TIER            — database, cache, blob store, search index
+
+N-tier (what production actually looks like):
+  PRESENTATION    — browser, mobile app
+  EDGE / GATEWAY  — CDN, WAF, API gateway, auth at the edge
+  APPLICATION     — stateless app servers (often several services)
+  CACHE           — Redis, Memcached, CDN edge
+  DATA            — primary DB + read replicas, sometimes a search index
+  STORAGE         — S3-like object storage for blobs
+  ASYNC           — message queue + workers for background work
+  OBSERVABILITY   — logs, metrics, traces — wraps all of the above
+```
+
+> **Why tiers matter for the interview:** A common interviewer question is "draw the boxes." If you draw only 2 boxes (client + database), you look junior. If you draw 6–8 boxes (presentation, gateway, app, cache, DB, queue, storage, observability), you look like someone who has actually built systems. The multi-tier framing is the cleanest way to remember to draw *all* of them.
+
+#### 1.0.4 The "Server" Is a Process, Not a Machine
+
+> **Interview relevance: Differentiator.** Almost never asked directly, but it shows up whenever the interviewer pushes on "what do you mean by 'add a server'?" or "container vs VM vs serverless?" Knowing the unit you're scaling is a senior-signal word choice.
+
+There is a deceptively important clarification: **a "server" is a process, not a physical box**. In modern deployments, the same machine can run many "servers" (containers, serverless functions), and a single "server" can be auto-scaled across many machines.
+
+```
+"Same thing" — what people mean by "server" in different contexts:
+
+  Bare-metal:   a physical machine in a rack.
+  VM:           a virtual machine on a host (EC2, Compute Engine).
+  Container:    an isolated process sharing an OS kernel (Docker, K8s).
+  Serverless:   a function-as-a-service (Lambda, Cloud Functions).
+
+  In all four cases, the "server" — the thing that handles requests —
+  is a *process* (or a fleet of identical processes), not a machine.
+```
+
+Why this matters in the interview: when you say "I'll add a server," the interviewer is checking whether you mean "I'll add a process / instance behind the load balancer" (correct, scales horizontally) or "I'll add a machine" (an operational detail, not the architectural one). State the unit you're scaling. Say: "I'll scale the *number of instances of the app process* behind the load balancer" rather than "I'll add a server."
 
 ---
 
@@ -297,6 +422,12 @@ Every question below has a concrete architectural consequence. These are the one
 | "Is there user-generated media (photos, video)?" | Object storage + CDN become necessary components |
 | "Does this handle sensitive data (health, financial)?" | Adds encryption, audit logging, compliance requirements |
 | "What's the acceptable downtime?" | Drives replication, failover, and deployment strategy |
+
+Before asking any clarifying question, run it through this filter: *"If the answer is different from what I expect, will I draw a different diagram?"* If the answer is no — the question doesn't matter, skip it. If the answer is yes — it's worth asking.
+>
+> Examples of "waste" questions: "Do users have profile pictures?" (no design change), "Should we support dark mode?" (no design change), "What's the brand color?" (no design change). Examples of "good" questions: "How many DAU?" (changes whether you need sharding), "Are users ever offline?" (changes whether you need a sync protocol), "What's the consistency tolerance for the ledger?" (changes your entire persistence strategy).
+>
+> **Senior signal:** Stating the filter out loud once at the start of requirements — "I want to ask the questions that would actually change my design" — instantly signals you understand the difference between trivia and architecture.
 
 ---
 
@@ -557,6 +688,27 @@ Then draw your system: storage on the right, transformation in the middle, movem
 | You ran out of things to say at minute 15 | Ask the interviewer: "Is there a particular component you'd like me to go deeper on?" |
 | You forgot to mention a requirement mid-design | "Actually, I want to add something to the requirements I noted — we haven't talked about what happens when a therapist cancels. That would change the notification design." |
 
+#### 1.8.1 Design Anti-Patterns to Avoid in the Interview
+
+> **Interview relevance: Differentiator.** You won't be asked "tell me the anti-patterns," but committing one of these live is the most common way to lose points. The "refusal of buzzword bingo" + "tradeoff acknowledged" rows are the ones to memorize cold.
+
+These are the most common anti-patterns that signal junior thinking — internalize them so you don't accidentally commit any of them.
+
+| Anti-pattern | What it looks like | Why it hurts | What to say instead |
+|--------------|--------------------|--------------|---------------------|
+| **Premature microservices** | "I'll split this into 12 services" for a 10-user MVP | Massive operational overhead for zero benefit; canary/observability cost is paid before scale arrives | "For the scale we discussed, I'd start with a modular monolith and split out a service only when there's a clear scaling or team-boundary reason." |
+| **Buzzword bingo** | "I'll use Kubernetes, Istio, Kafka, Cassandra, ClickHouse, Redis, Elasticsearch, and Snowflake" | The interviewer stops listening. It signals you collected names without understanding fit. | Name *one* tool per problem, and only after you've explained the problem. |
+| **"I'll add Redis"** (without saying why) | "Caching is good, so I'll add Redis" | Caching adds invalidation complexity, an extra failure mode, and cost. It only helps specific read patterns. | "Reads are 100x writes and the data is mostly read-only after creation — I'll add a cache-aside layer in front of the DB for the 5% of items that get 95% of reads." |
+| **Ignoring failure modes** | Drawing boxes connected by happy-path arrows | Production is mostly failure paths. Interviewer wants to see you reason about what happens when each box dies. | For every box, name what happens if it goes down. "If the cache dies, the DB takes the load but my service stays up — read latency degrades." |
+| **"I'll just add more servers"** | Defaulting to "scale horizontally" as the answer to every problem | Some problems are not capacity problems (correctness, consistency, contention). | "Before I scale, let me check if the bottleneck is throughput, latency, or correctness — they have different fixes." |
+| **Drawing too much, talking too little** | Silent 5 minutes of drawing, then "here it is" | The interviewer can't see your reasoning. The 45 min is for thinking out loud, not for the artifact. | Narrate every box. "I'm adding a queue here *because* the user shouldn't wait for the thumbnail generation…" |
+| **Premature optimization** | "I'll shard by hash of user_id + region + tenant + created_at" for a system that fits in one DB | Sharding is a 6-month project. Don't commit before you have data showing you need it. | "If single-DB QPS exceeds 5K or storage exceeds 1 TB, I'll shard. Until then, vertical + replicas." |
+| **One-tier thinking** | "Client → API → DB" with nothing else | Real systems have cache, queue, storage, CDN, observability. The 3-box answer is the *starter*, not the system. | Use the multi-tier framing from §1.0.3: presentation → edge → app → cache → data → storage → async → observability. |
+| **No tradeoff acknowledged** | "This is the right way to do it" | Senior engineers know every choice has a cost. The interviewer is watching for the cost. | Always pair a decision with "the cost is…" or "the tradeoff is…" |
+| **Cargo-cult architecture** | "Uber uses Cassandra and Kafka so I should too" | You're not Uber. Their scale and constraints are not yours. | "I considered Cassandra, but for our QPS and access pattern Postgres with read replicas is sufficient. If our write QPS grew 100x, I'd revisit." |
+
+The interview is not measuring whether you can list AWS services or whether you can clone Netflix. It is measuring (1) can you *reason* about a problem, (2) do you have a *repertoire* of solutions you can pick from, and (3) can you *collaborate* with the interviewer to refine the design. The anti-patterns above are all failures of one of those three.
+
 ---
 
 ### 1.9 Module 1 — Quick Fire (after the full explanation)
@@ -658,6 +810,75 @@ Step 4: How much storage do we need?        (GB or TB per day/year)
 ```
 
 Let's define each term, then do a full worked example.
+
+#### 2.3.1 Little's Law — The Estimation Tool Most Candidates Miss
+
+> **Interview relevance: Core.** "How many servers do I need?" and "how big should my queue be?" are the two questions this unlocks. Candidates who reach for L = λ × W out loud stand out; almost nobody else does.
+
+Little's Law is a beautiful, simple formula that lets you reason about queues, capacity, and latency. Once you know it, estimation questions that seemed magical become mechanical.
+
+**The formula:**
+
+```
+L = λ × W
+where:
+  L = average number of items in the system (in-flight, in-queue, in-service)
+  λ = arrival rate (items per second)
+  W = average time an item spends in the system (seconds)
+```
+
+**Why this matters in the interview:** Almost every "how many servers / how big a queue / what's the latency under load" question is Little's Law in disguise. If you can rearrange the formula and reason out loud, you look like someone who has actually run capacity planning — not just memorized numbers.
+
+**Three useful rearrangements:**
+
+```
+Given λ and W:    L = λ × W   → "How many items are in-flight at any time?"
+Given L and λ:    W = L / λ   → "How long does each item wait on average?"
+Given L and W:    λ = L / W   → "What's the throughput ceiling?"
+```
+
+**Worked example 1 — Checkout system:**
+
+```
+Scenario: A checkout pipeline takes 3 seconds end-to-end.
+          1000 users are concurrently checking out.
+
+  L = 1000 (items in system)
+  W = 3 sec
+  λ = L / W = 1000 / 3 ≈ 333 checkouts/second
+
+  → If you can do 333 checkouts/second, you need 333 concurrent
+    checkouts in flight, which means you need ~333 worker threads
+    (or 333 Lambda concurrent executions, or 333 serverful instances).
+```
+
+**Worked example 2 — Queue capacity:**
+
+```
+Scenario: Webhook events arrive at 1000/s.
+          Each takes 50ms to process.
+          How many events sit in the queue on average?
+
+  λ = 1000/s
+  W = 50ms = 0.05s
+  L = λ × W = 1000 × 0.05 = 50 events in-flight
+
+  → At 50ms per event with one consumer, the queue is essentially empty.
+  → If W spikes to 5 sec (a slow consumer), L = 5000 events in queue
+    — that means you need either more consumers or you start dropping.
+```
+
+**Worked example 3 — Throughput ceiling:**
+
+```
+Scenario: A single Kafka partition is processed by one consumer.
+          Each message takes 20ms. What's the max throughput?
+
+  Per-partition λ = 1 / W = 1 / 0.02s = 50 messages/second
+  → If you need 10K messages/s, you need 10K/50 = 200 partitions.
+```
+
+> **Interview framing:** When the interviewer says "how big should my queue be?" or "how many consumers do I need?", don't guess. Say "let me apply Little's Law — if arrival rate is X and processing time is Y, then the system will have X×Y items in flight on average. To stay healthy, the consumer pool must process at least X items/second."
 
 ---
 
@@ -831,6 +1052,104 @@ Storage per day = 500 writes/sec × 5MB × 100,000 sec = 250 TB/day
 
 > **Senior signal:** After computing these numbers, say: "The 100:1 read/write ratio tells me caching is the most important architectural choice here. And 250 TB/day of video means a relational database is completely wrong for media storage — I'd use object storage and a CDN."
 
+#### 2.5.1 Worked Example — Uber-style Ride Dispatch (Write-Heavy, Geo, Real-Time)
+
+> **Interview relevance: Differentiator.** Unlikely to be asked at this depth (QPS + storage + 5 derived architecture choices) in 45 min. But the *shape* — write-heavy + geo + real-time + async — is exactly what an interviewer is looking for when they say "design a ride-sharing app." The signal: "this person can decompose a system into its data shape and choose tools accordingly."
+
+Ride-sharing is the canonical write-heavy, geo-aware, real-time problem. The same shape appears in food delivery, fleet management, on-demand services, IoT telemetry, and asset tracking.
+
+```
+DAU: 30M riders, 5M drivers
+Rides per day: 20M
+Trip lifecycle events per ride: 50 (location pings, status changes, payments)
+  → 20M × 50 = 1B events/day
+  → 1B / 100,000 sec = 10,000 events/second average
+  → Peak: 3-5x average = 30K-50K events/second
+
+Storage:
+  Each event ~200 bytes
+  1B events × 200 bytes = 200 GB/day of raw event data
+  Replicated 3x in Kafka = 600 GB/day hot storage
+  After 30 days in S3 (warm): 6 TB/month
+  After 1 year in Glacier (cold): 72 TB/year
+
+Read QPS:
+  Active driver locations read by dispatch: 5M drivers × 1 update
+    to dispatchers per 30s = 167K location reads/second
+  Each rider checks app for nearby cars: 30M × 20 opens/day = 6M
+    "find me a car" queries/day = 60 reads/second average
+```
+
+**What the estimation tells you architecturally:**
+
+```
+WRITE-HEAVY         — 10K+ writes/sec, all small structured events.
+                       → Use a message queue (Kafka) as the primary
+                         write path. DBs are for state, not events.
+                       → Concrete: Uber, Lyft, DoorDash all use Kafka
+                         as the trip-event backbone.
+
+GEO-AWARE           — Every event has a lat/lon; every query is
+                       "within X km of Y".
+                       → Add a geo-index: H3 (Uber's open-source hex
+                         grid), Redis GEORADIUS, or PostGIS. NOT a
+                         naive SQL `WHERE lat BETWEEN ... AND ...`
+                         scan, which is O(n) per query.
+
+REAL-TIME DISPATCH  — Sub-second matching.
+                       → A dedicated matching service in front of
+                         a location cache (Redis with GEO commands,
+                         or a hot-path service that keeps all
+                         active drivers in memory).
+                       → Concrete: Uber's Ringpop and H3 work
+                         together; Lyft uses gRPC with extreme
+                         connection pooling.
+
+ASYNC BY DEFAULT    — A ride's "complete" event triggers payment,
+                       ratings, receipt, analytics, ML training.
+                       → All post-trip work happens via async
+                         workers reading from Kafka, not in the
+                         request path.
+
+WRITE-PATH STATE    — Where IS the driver right now? This is
+                       a state, not an event.
+                       → Use a fast KV store (Redis) for the current
+                         state, derived from the event stream
+                         (Kafka → stream processor → Redis).
+```
+
+> **Senior signal:** "This is write-heavy, geo-aware, and real-time. I'll front it with a message queue, use a geo-index for spatial queries, and keep the hot path in memory. Async workers consume events for everything that doesn't need a synchronous response."
+
+> **Common mistake:** Candidates try to write every location ping to a relational database. At 30K events/sec, a single Postgres primary will fall over in minutes. The event log (Kafka) is the source of truth; the database holds derived state.
+
+#### 2.5.2 Worked Example — Ad Bidding (Read-Heavy, Latency-Critical, Money)
+
+> **Interview relevance: Differentiator.** A great "I have done this at scale" example when asked about latency-critical or revenue-bound systems. Most candidates never connect "bid" → "100K QPS at <100ms" → "must be in-memory." Pair with the HFT/quant interview archetype.
+
+The opposite of a write-heavy geo system is a read-heavy bidding system: 100K–500K bid requests per second, each must be answered in <100ms, and the answer directly affects revenue.
+
+```
+DAU (bidders): 1000
+QPS (bid requests from ad exchanges): 100,000
+Bid response time budget: 100ms (p99)
+Bid price calculation: lookup user segment + look up ad campaign
+                       + run a simple auction function
+Per-bid DB lookup: 5 queries × 1ms each = 5ms
+Per-bid cache lookup: 5 × 0.1ms = 0.5ms
+
+  → At 100K QPS, you cannot hit a DB on every bid.
+  → Cache user segment in Redis (sub-ms, can absorb 100K QPS).
+  → Cache campaign in memory in the bidder process (fastest).
+  → Pre-compute bid prices for common combinations in a lookup table.
+
+Revenue calculation:
+  100K QPS × 0.1% click-through × $1 CPM = $100/sec = $360K/hour.
+  → Even a 1% drop in availability is $3600/hour lost.
+  → Latency matters: ads served >200ms earn 50% less.
+```
+
+> **Senior signal:** "This is read-heavy and money-bound. I'll pre-compute bid prices and keep them in a multi-level cache (L1 in-process, L2 Redis). The bidder is stateless and horizontally scaled. The auction function is pure — no DB hits in the hot path. Failure mode I worry about: cache stampede on a campaign refresh."
+
 ---
 
 ### 2.6 How to Speak During Estimation in the Interview
@@ -948,6 +1267,91 @@ Without isolation:                     With isolation:
 **Durability** — Once a transaction commits, it's permanent. Even if the server crashes immediately after COMMIT, the data is not lost (it's been written to disk).
 
 > **Senior signal:** When designing a financial system or a booking system, proactively saying "I need ACID guarantees here because partial writes would corrupt the data model" signals you understand _why_ you're choosing SQL, not just that "SQL is good."
+
+#### 3.3.1 ACID vs CAP Consistency — The Most Common Interview Trap
+
+> **Interview relevance: Core.** A classic "trap" question. Interviewers who ask about DynamoDB, Postgres, or distributed transactions often test exactly this. Knowing the two "consistencies" are different and naming when each applies is a top-of-band signal.
+
+The word "consistency" appears in two completely different contexts in system design. Conflating them is a senior-engineer trap and a senior-interviewer trap.
+
+```
+ACID CONSISTENCY  (database-level):
+  The database moves from one valid state to another.
+  Means: integrity constraints are always satisfied.
+  Scope: a single transaction in a single database.
+  Example: a transfer can't make Alice's balance negative.
+
+CAP CONSISTENCY   (distributed-systems-level):
+  All replicas of a piece of data return the same value
+  at the same time (linearizability).
+  Means: every read sees the latest committed write.
+  Scope: across multiple nodes in a distributed system.
+  Example: a user in Tokyo and a user in São Paulo both see
+  the same chat message at the same wall-clock moment.
+
+THEY ARE NOT THE SAME.
+A database can be ACID-compliant and CAP-inconsistent
+(distributed transactions across regions use eventual consistency
+for cross-region replication).
+A database can be CAP-consistent (Raft quorum) and not
+ACID (Cassandra is AP, sacrifices ACID atomicity).
+```
+
+**The interview trap questions:**
+
+```
+Q: "Is DynamoDB ACID?"
+A: Sort of. DynamoDB Transactions API provides ACID for single-region
+   multi-item transactions. But its default reads are eventually
+   consistent (CAP-AP), not strongly consistent.
+
+Q: "Is Postgres eventually consistent?"
+A: No. A single Postgres instance is ACID and CAP-consistent (C in CAP
+   because a single node doesn't have a partition to worry about).
+   Once you add a read replica, you can choose to read from the replica
+   — at which point you accept eventual consistency for those reads.
+
+Q: "What does my application need?"
+A: Depends on the operation. Banking ledger: ACID + CP.
+   Social feed: BASE + AP.
+   Cart in e-commerce: ACID at checkout, BASE while browsing.
+```
+
+> **Senior signal:** When the interviewer says "we need consistency," immediately ask "which kind — ACID consistency in our writes, or CAP consistency across replicas?" The fact that you know they are different is a top-of-band signal.
+
+#### 3.3.2 BASE — The NoSQL Counterpart to ACID
+
+> **Interview relevance: Differentiator.** The acronym is the value — the spelling "BASE" is memorable, and being able to name the three properties out loud when discussing NoSQL is a quick win. You will rarely be asked to define BASE explicitly, but it shows up whenever you discuss DynamoDB, Cassandra, or S3.
+
+When NoSQL systems decided to give up full ACID to get horizontal scale, they articulated the alternative explicitly. The acronym is BASE.
+
+```
+BASE = Basically Available, Soft state, Eventual consistency
+
+Basically Available:
+  The system always responds — even if the response is stale
+  or a degraded version of the truth. It does not return 500.
+  → "I can always read your shopping cart; it might be 200ms stale."
+
+Soft state:
+  The system's state may change over time, even without input,
+  because replicas are converging.
+  → "A user's last-seen timestamp updates as replicas sync."
+
+Eventual consistency:
+  Given enough time and no new writes, all replicas will agree.
+  → "If I update my profile picture, every region will show the
+     new picture within a few seconds."
+```
+
+| | ACID | BASE |
+|--|------|------|
+| Common in | Postgres, MySQL, Oracle | DynamoDB, Cassandra, Riak, S3 |
+| Trade-off | Strict correctness | Scale + availability |
+| Use when | Money, inventory, bookings, anything where partial state is a bug | Social feeds, shopping carts, counters, analytics, anything where stale is acceptable |
+| Real-world example | A bank transfer — can't have $100 vanish | A "view count" on a YouTube video — being off by a few is fine |
+
+> **Common mistake:** "We don't need transactions" — usually wrong. Even in BASE systems, individual operations are atomic (single-item writes, single-row reads). What's eventually consistent is the *propagation* across replicas, not the operation itself.
 
 ---
 
@@ -1107,6 +1511,89 @@ CREATE TABLE users (
 **When to denormalize:** Normalization is about write-time correctness. At scale, you sometimes _intentionally_ break 3NF for read performance. For example, a social media post might store the author's username directly on the post row so you don't need a JOIN on every feed read. This is called **denormalization**, and it's a deliberate, reasoned trade-off, not a mistake.
 
 > **Senior signal:** "I'd start normalized and denormalize only if query performance demands it, with a clear understanding of the consistency implications — now the username can be stale if the user changes it."
+
+#### 3.4.6 Concurrency Control — Optimistic vs Pessimistic Locks
+
+> **Interview relevance: Core.** Almost any system design with "two users touching the same resource" requires this. Booking, inventory, payments, leaderboards, voting, even document collaboration. Knowing the two patterns + the deadlock-avoidance rules is required, not extra.
+
+When two transactions can edit the same row, the database needs a way to serialize them. There are two philosophical approaches: assume the worst and lock (pessimistic), or assume the best and check at commit time (optimistic).
+
+```
+PESSIMISTIC LOCKING ("lock first, then read"):
+  - The transaction takes a lock on the row before reading it.
+  - Any other transaction trying to read FOR UPDATE blocks until the first commits.
+  - Use case: high-contention resources where conflicts are likely.
+  - SQL:
+      BEGIN;
+        SELECT * FROM appointments WHERE id = '...' FOR UPDATE;
+        -- now this row is locked; no other tx can update it
+        UPDATE appointments SET ... WHERE id = '...';
+      COMMIT;
+  - Pros:  guaranteed serialization; no surprise conflicts at commit time.
+  - Cons:  blocks other readers/writers; can deadlock if locks are taken
+           in different orders; can hurt throughput.
+
+OPTIMISTIC LOCKING ("read, then check at write time"):
+  - Add a version column to the table.
+  - On UPDATE, require the version to match the value you read.
+  - If someone else updated the row, the version changed; your UPDATE
+    affects 0 rows; the application knows the update lost a race.
+  - Use case: low-contention resources; many reads, few writes.
+  - SQL:
+      CREATE TABLE appointments (
+        id      UUID PRIMARY KEY,
+        version INT NOT NULL DEFAULT 0,
+        ...
+      );
+
+      -- Read
+      SELECT * FROM appointments WHERE id = '...'   -- version = 3
+
+      -- Update with version check
+      UPDATE appointments
+      SET ..., version = version + 1
+      WHERE id = '...' AND version = 3;
+      -- if 0 rows affected, retry (re-read, re-validate, re-write)
+  - Pros:  no blocking; scales well under low contention.
+  - Cons:  wasted work if conflicts are common; the retry loop is the
+           application's responsibility.
+```
+
+**When to use which — the rule of thumb:**
+
+```
+High contention (booking a hot seat, flash sale, last ticket):
+  → Pessimistic with timeout + retry.
+  → "I want to serialize access and pay the lock cost."
+
+Low contention (user updates their profile, post edits):
+  → Optimistic with version column.
+  → "Most updates won't conflict; if they do, the user retries."
+
+Distributed lock (cross-service, across DBs):
+  → Redis SET NX with expiry + auto-renewer.
+  → "I need a lock that survives across services; a DB row lock
+     only works within one transaction."
+```
+
+**Deadlock avoidance — concrete rules:**
+
+```
+Rule 1: Lock in the same order in every transaction.
+  → "Always lock account A first, then account B" — not the reverse.
+
+Rule 2: Set a lock timeout.
+  → MySQL: innodb_lock_wait_timeout = 5s
+  → Postgres: SET LOCAL lock_timeout = '5s'
+
+Rule 3: Make transactions as short as possible.
+  → "Don't do API calls inside a DB transaction."
+
+Rule 4: Use the lowest granularity lock you can.
+  → Row locks > table locks. WHERE id = '...'  not the whole table.
+```
+
+> **Interview signal:** "I'd use optimistic locking for user profile updates (rarely conflict) and pessimistic for booking a specific appointment slot (definitely conflicts). If two services need to coordinate, I'd use a Redis lock with a TTL so a crashed service doesn't deadlock the system."
 
 ---
 
@@ -1436,6 +1923,103 @@ Shard "apac":        users in Asia-Pacific
 
 > **Sharding and the CAP theorem:** Sharding is fundamentally an AP choice (you accept that cross-shard queries may be eventually consistent). Trying to make a heavily-sharded system strongly consistent is a months-long, error-prone project. Design for it from the start, or don't shard.
 
+#### 3.6.1 Federation vs Sharding — Two Different Splits
+
+> **Interview relevance: Core.** "When do you split into microservices vs shard the DB?" comes up any time the interviewer pushes on the data layer. Knowing the two are different dimensions (and that microservices naturally *are* federation) is a frequent differentiator.
+
+The word "federation" gets used interchangeably with sharding, but they split data along different dimensions. Microservices and sharding are not the same pattern.
+
+```
+SHARDING (horizontal split, same schema):
+  You have ONE big table (e.g., users). You split its ROWS
+  across N database servers. Each server has the same schema;
+  each server holds 1/N of the data.
+  Goal: scale a single data type beyond one server can hold.
+
+  users_shard_1:  user_id 1-1M
+  users_shard_2:  user_id 1M-2M
+  users_shard_3:  user_id 2M-3M
+       (same users table, partitioned by user_id)
+
+FEDERATION (functional split, different schemas):
+  You split your data into different databases, each owned
+  by a different SERVICE. Each database has a different
+  schema. The "split" is by domain, not by row.
+  Goal: service autonomy; different data lives in different places.
+
+  users_service    → users_db    (users table)
+  orders_service   → orders_db   (orders + order_items tables)
+  products_service → products_db (products + inventory tables)
+  payments_service → payments_db (transactions + payouts tables)
+
+  Each service OWNS its data. Other services cannot write to
+  it directly; they call the service's API. This is the
+  microservices pattern.
+```
+
+| | Sharding | Federation |
+|---|---|---|
+| Splits | Rows of the same table | Different tables (different domains) |
+| Schema | Identical across shards | Different per database |
+| Owner | Usually a single service / app | Different services own different DBs |
+| Cross-cutting joins | Possible but expensive (cross-shard query) | Not possible without API call (eventual consistency) |
+| Used when | One table is too big for one server | The product is naturally split into bounded contexts |
+| Concrete example | Instagram splitting the `users` table by user_id across 1000 MySQL shards | An e-commerce platform with users, orders, products, payments as 4 services with 4 DBs |
+
+> **The natural connection:** When you adopt microservices, you *naturally* get federation. Each microservice gets its own database; that's the rule. If the same database is shared between two services, they are not really microservices — they are a distributed monolith.
+
+> **When federation is the wrong call:** When the data is naturally cross-cutting and the services constantly need to JOIN. In that case, the "microservices" have become a distributed monolith with all the cost and none of the benefit.
+
+#### 3.6.2 Logical Partitioning (Same Server, Different Buckets)
+
+> **Interview relevance: Differentiator.** Almost never asked directly, but if you mention "I'd partition the events table by month in Postgres" while discussing an event-heavy system, that's a senior moment. Most candidates skip past partitioning and go straight to sharding.
+
+Logical partitioning is NOT sharding. The data lives on the same database server, but is split into "partitions" the database manages internally. It's the cheapest form of data pruning and is the canonical tool for time-series data.
+
+```
+A single appointments table with range partitioning by month:
+
+  appointments_2024_q1  →  rows where created_at in 2024-Q1
+  appointments_2024_q2  →  rows where created_at in 2024-Q2
+  appointments_2024_q3  →  rows where created_at in 2024-Q3
+  appointments_2024_q4  →  rows where created_at in 2024-Q4
+
+Query: "all appointments in Q3 2024"
+  → The DB scans ONLY the 2024_q3 partition.
+  → Other partitions are skipped (pruned).
+```
+
+**Why partition rather than shard:**
+
+```
+✓ Cheaper than sharding — single server, no network hops, no cross-partition transactions.
+✓ Index per partition is smaller → queries on hot partitions are faster.
+✓ Easy retention: DROP PARTITION for old months = O(1) data deletion.
+✓ Supported by every major RDBMS: Postgres (declarative partitioning), MySQL, Oracle.
+
+✗ Whole dataset still on one server — no horizontal scaling of write QPS.
+✗ One slow query on a large partition can still hurt.
+✗ Cross-partition queries still expensive.
+```
+
+**When to use logical partitioning:**
+
+```
+Time-series data (events, logs, telemetry, audit trails):
+  Partition by day/month. Hot data is current; cold data is old.
+  Old partitions can be detached and archived to S3 cheaply.
+
+Multi-tenant data (SaaS with one big customers table):
+  Partition by tenant_id. Each tenant's data is in one partition.
+  Helps with noisy-neighbor problems (one huge tenant can't
+  dominate all queries).
+
+Reference data with skewed access:
+  Partition by category. Hot categories get their own partitions.
+```
+
+> **Interview tip:** "For a 10-billion-row events table, I'd partition by day in Postgres (declarative partitioning). Queries on recent data hit only the latest partition. Old partitions are dropped or archived to S3. This buys 90% of the benefit of sharding at 5% of the complexity — until you outgrow it, then you shard."
+
 ---
 
 ### 3.7 Replication
@@ -1569,6 +2153,86 @@ Q3: What's the access pattern?
 ```
 
 > **Senior signal:** Being able to say *"for this requirement, I'd reach for X because of Y, and the alternative is Z with this trade-off"* is what separates the senior answer from "use Postgres." The tree above is the senior answer.
+
+#### 3.8.1 NoSQL Family Use Cases — Real-World Examples
+
+> **Interview relevance: Core.** Almost every system design asks "which database?" The wrong answer is "Postgres" by reflex. The right answer is "Postgres for the system of record, Redis for hot reads, Elasticsearch for search, S3 for blobs, Kafka for events" — naming the *family* per problem.
+
+Don't pick a NoSQL family in the abstract. Pick the *problem*, then the family that fits.
+
+```
+KEY-VALUE (Redis, DynamoDB, Memcached, etcd):
+  Pattern: "give me the value for this key, fast"
+  Real-world:
+    - Session store ("who is this user, what's their cart?")
+    - Cache layer (the read-through front for the DB)
+    - Rate-limit counters (INCR + EXPIRE)
+    - Leaderboards (Redis sorted sets: O(log N) update + range query)
+    - Distributed locks (Redis SET NX with expiry)
+    - Pub/Sub (chat fan-out, presence)
+    - Service discovery (etcd, Consul — same key-value shape)
+    - Feature flags (DynamoDB single-row read)
+  Tradeoff: limited query patterns (no JOINs, no range queries except
+    on the key, no full-text).
+
+DOCUMENT (MongoDB, Firestore, Couchbase, DocumentDB):
+  Pattern: "give me this self-contained record with all its nested data"
+  Real-world:
+    - User profile (a profile + nested preferences + nested addresses)
+    - Content management (a blog post + comments + tags as nested fields)
+    - Product catalog (a product + variants + reviews + specs as nested)
+    - Mobile app sync (Firestore is built on this exact pattern —
+      the document IS the sync unit)
+    - IoT device shadow (current state of a device + history)
+  Tradeoff: flexibility is great until you need cross-document
+    transactions; many document stores added them later (MongoDB 4.0+).
+
+WIDE-COLUMN (Cassandra, ScyllaDB, HBase, Bigtable):
+  Pattern: "give me the rows for this partition key, ordered by row key"
+  Real-world:
+    - Uber trip events (one row per event, partition by trip_id)
+    - Instagram DMs (partition by conversation_id, row by timestamp)
+    - IoT telemetry (partition by device_id, row by timestamp)
+    - Time-series metrics (partition by metric + minute, row by sub-second)
+    - Write-heavy product catalogs (Cassandra can absorb millions of writes/sec)
+  Tradeoff: queries outside the partition key are expensive (full scan).
+    You have to design the schema for the query, not the other way around.
+
+GRAPH (Neo4j, Neptune, JanusGraph):
+  Pattern: "find the relationships between these entities"
+  Real-world:
+    - Social network ("friend of friend of friend" queries)
+    - Fraud detection (find connected accounts through shared devices/IPs/cards)
+    - Recommendation engine (users who liked X also liked Y, traversing)
+    - Knowledge graph (Google's Knowledge Graph is exactly this)
+    - Access control (role → permission → resource traversal)
+  Tradeoff: terrible for non-graph queries; don't use as your primary store.
+
+SEARCH (Elasticsearch, OpenSearch, Solr, Meilisearch, Typesense):
+  Pattern: "find documents matching this text, ranked by relevance"
+  Real-world:
+    - E-commerce product search
+    - Log search (Datadog, Splunk, ELK)
+    - Code search (GitHub)
+    - Slack message search
+    - Autocomplete / typeahead
+  Tradeoff: not a system of record; always paired with a primary DB.
+    Eventual consistency between primary and search index is the norm.
+
+COLUMNAR / WAREHOUSE (Redshift, BigQuery, Snowflake, ClickHouse):
+  Pattern: "scan billions of rows to compute an aggregate"
+  Real-world:
+    - Analytics dashboards
+    - Ad-hoc analyst queries
+    - ML training data preparation
+    - Business intelligence reports
+  Tradeoff: write throughput is poor compared to OLTP; this is the read side
+    of a Lambda/Kappa architecture.
+```
+
+> **The "use Postgres for everything" trap:** Senior candidates sometimes say "I just use Postgres" to dodge the question. The senior *real* answer is "Postgres for the system of record; Redis for hot reads; Kafka for event flow; Elasticsearch for search; S3 for blobs; a columnar warehouse for analytics. Each tool does one thing well."
+
+> **Common mistake:** Picking a NoSQL database because it's "modern" or "scales better" without naming the access pattern that requires it. A relational DB can scale to billions of rows with proper indexing. NoSQL is for *access patterns* relational doesn't serve well.
 
 ---
 
@@ -2031,6 +2695,121 @@ With jitter:
 
 **3. Background refresh:** Before TTL expires, a background job proactively refreshes popular cache keys. The cache never actually goes empty for hot items.
 
+#### 4.9.1 Negative Caching and Other TTL Tricks
+
+> **Interview relevance: Differentiator.** Most candidates never think to cache a 404 or a "user not found." If the interviewer pushes on "what about scanner traffic?" or "what about a hot missing key?", naming negative caching with a TTL is a top-of-band moment.
+
+> **Interview relevance: Differentiator.** Most candidates never think to cache a 404 or a "user not found." If the interviewer pushes on "what about scanner traffic?" or "what about a hot missing key?", naming negative caching with a TTL is a top-of-band moment.
+
+Caches aren't just for hits. The most senior trick is caching *negatives*.
+
+```
+NEGATIVE CACHING:
+  Store "this key is intentionally empty" with a short TTL.
+  Used for: a 404 from the DB, a "user does not exist" lookup,
+  a "no results" search response.
+
+  → If a scanner hits the same missing URL 1000 times/sec,
+    the cache absorbs 999 of them. The DB sees 1 lookup.
+
+  Concrete example: a parking meter scanner pokes a payment API
+  100x/sec for one car's plate. The first call returns 404. The
+  next 99 calls in the next 30 seconds hit the cache.
+
+SOFT TTL + HARD TTL:
+  Soft TTL: the data is "stale" but still served (return fast).
+  Hard TTL: the data is evicted, must be refetched.
+  → Caffeine (Java), rdb (Python), BigCache (Go) implement this.
+
+  Concrete: a product price cached for 5 minutes soft, 30 minutes hard.
+    0-5 min:   serve from cache
+    5-30 min:  serve stale + async refresh
+    30+ min:   cache miss → DB lookup
+```
+
+#### 4.9.2 The Hit Rate → DB QPS Math
+
+> **Interview relevance: Core.** When the interviewer asks "is a 90% hit rate good?" you need the answer: 10× reduction in DB load. 99% is 100×. This is the math that justifies the cache in the first place.
+
+This is the most important caching math. Memorize it.
+
+```
+ORIGINAL DB QPS WITHOUT CACHE:
+  read_qps = (DAU × reads_per_user_per_day) / 100,000
+
+WITH CACHE:
+  db_qps  = read_qps × (1 - hit_rate)
+  cache_qps = read_qps × hit_rate
+
+EXAMPLES (1M DAU, 20 reads/user/day = 200 read QPS):
+
+  0%  hit rate →  200 QPS to DB
+  50% hit rate →  100 QPS to DB
+  90% hit rate →   20 QPS to DB
+  95% hit rate →   10 QPS to DB
+  99% hit rate →    2 QPS to DB   ← 100x reduction
+
+  → 99% hit rate is the difference between a system that needs
+    one DB and one that needs 50 DBs. It's a 100x cost difference.
+```
+
+> **Interview signal:** "With 99% hit rate, the DB sees 100x less load than without cache. That's the difference between needing one $100/mo DB and fifty. Cache hit rate is the single most important cache metric."
+
+#### 4.9.3 Cache Sharding
+
+> **Interview relevance: Differentiator.** Rarely asked, but if the cache itself is the bottleneck (e.g., 1M RPS to a hot key on one Redis shard), knowing you can shard the cache the same way you shard the DB is a top-of-band signal.
+
+> When one Redis cluster is no longer big enough, you shard the cache the same way you shard the DB.
+
+```
+CACHE SHARDING:
+  The cache key has a hash; the hash picks the shard.
+  Standard pattern:  shard = hash(key) % N_shards
+
+  Each shard is a Redis cluster (or a single Redis instance).
+
+  Real-world:
+    - Discord shards its session cache across many Redis nodes.
+    - Twitter shards its timeline cache by user_id.
+    - Pinterest uses memcached with consistent hashing across
+      hundreds of nodes.
+
+  Tradeoff:
+    + horizontally scales read capacity
+    - "scan all keys" becomes multi-shard (expensive)
+    - "delete by tag" requires a tag index
+```
+
+#### 4.9.4 Multi-Level Cache
+
+> **Interview relevance: Differentiator.** "Where does the cache live?" is sometimes asked. The L1/L2/L3/L4 pyramid is the right mental model — and saying "in-process (L1) + Redis (L2) + CDN (L4)" is a top-of-band answer vs "Redis."
+
+The cache pyramid is a standard mental model.
+
+```
+L1  In-process (Java/Go/Node in-memory map, ~100ns)
+    Use: a single hot value, a feature flag, a configuration value
+    Size: KB to a few MB
+    Risk: per-process; not shared; stale across instances
+
+L2  In-memory distributed cache (Redis/Memcached, ~1ms)
+    Use: shared session, hot product, popular post
+    Size: GB
+    Risk: network round trip; can be a bottleneck
+
+L3  In-database cache / buffer pool (~1-10ms)
+    Use: the DB's own internal cache of recently read pages
+    Size: tens of GB
+    Risk: not user-controllable; evicts based on DB heuristics
+
+L4  Object storage / CDN (~10-100ms)
+    Use: full-page HTML cache, large blobs, static assets
+    Size: TB+
+    Risk: high latency on cold reads
+```
+
+> **Why the pyramid matters in the interview:** When you say "I'll cache it," the interviewer asks "where?" Each level has a different latency, cost, and consistency story. Naming the *level* is senior; "I'll add a cache" is junior.
+
 ---
 
 ### 4.10 Where the Cache Sits in Your Architecture
@@ -2107,6 +2886,112 @@ With CDN:
 - Real-time data (appointment availability, chat messages)
 
 **For mobile engineers:** Every image your app displays should have a CDN URL, not a direct server URL. On a mobile connection, loading a 2 MB profile photo from a server on a different continent instead of a nearby CDN edge is the difference between 3 seconds and 200ms.
+
+#### 4.11.1 CDN Cache Key Composition
+
+> **Interview relevance: Differentiator.** Rarely asked at the cache-key level. Useful when the interviewer probes on "how do you handle per-user URLs" or "how do you cache different language versions." Names an actual production gotcha.
+
+Most candidates say "the CDN caches URLs" and stop. The senior answer is that the CDN cache key is a *function* of the request — and you have to design that function.
+
+```
+DEFAULT CDN CACHE KEY:
+  METHOD + URL + a few headers (varies by provider)
+
+  Example: GET /hero.jpg
+  Key:    "GET:/hero.jpg"
+  → Every request to the same URL hits the same cached object.
+
+CACHE KEY WITH QUERY STRING:
+  Example: GET /hero.jpg?lang=en&v=2
+  Key:    "GET:/hero.jpg?lang=en&v=2"
+  → Different query strings = different cache entries.
+  → CACHE BUSTING: append ?v=N when content changes.
+
+CACHE KEY WITH VARIANT HEADERS:
+  Example: GET /hero.jpg with Accept-Language: pt-BR
+  Key:    "GET:/hero.jpg:Accept-Language:pt-BR"
+  → Different language versions of the same image are cached separately.
+  → This is how Cloudflare/Akamai serve globalized assets.
+```
+
+**The long-tail content problem and the "uncacheable URL" trap:**
+
+```
+A CDN loves 80/20 distributions:
+  80% of traffic hits 1% of files (the "head").
+  20% of traffic hits the remaining 99% (the "long tail").
+
+  → The head is a perfect CDN use case.
+  → The long tail evicts constantly; cache hit rate on the long tail
+    is poor; you may serve most requests from origin anyway.
+
+A CDN does NOT love:
+  ✗ Per-user URLs: /u/12345/avatar.jpg — every URL is unique, no reuse.
+  ✗ Signed URLs with short expiry: the cache evicts before the next request.
+  ✗ Personalized responses: the cache returns User A's data to User B.
+```
+
+**Workaround for the per-user problem (signed URLs):**
+
+```
+The pattern:
+  1. App asks the API for an avatar URL.
+  2. API returns:
+       "https://cdn.example.com/u/12345/avatar.jpg?Expires=...&Signature=..."
+  3. The CDN sees a NEW URL → fetches from origin → caches it.
+  4. Subsequent requests with the same signature hit the cache.
+  5. When the signature expires, the URL changes → a new cache entry.
+
+  → The CDN can still cache, but the "key" effectively includes
+    a time window. Tune the expiry to match your traffic.
+```
+
+**CDN for dynamic content — the modern use case:**
+
+```
+A traditional CDN is a cache. A modern edge platform is a compute
+layer that runs JavaScript/WASM at the edge, close to the user.
+
+  Cloudflare Workers    →  JS at 200+ edge locations
+  Lambda@Edge (AWS)     →  Node.js on CloudFront
+  Fastly Compute@Edge   →  WASM at the edge
+
+USE CASES:
+  - Auth at the edge (verify JWT, reject bad requests, never hit origin)
+  - A/B testing at the edge (route 10% to variant B without origin)
+  - Geo-based content rewrite (return different HTML for EU users)
+  - HTML caching with stale-while-revalidate (cache the page; refresh
+    in the background; serve the cached version immediately)
+```
+
+#### 4.11.2 CDN for Video Streaming
+
+> **Interview relevance: Differentiator.** Only relevant for video-streaming designs (YouTube, Netflix, Twitch). If asked to design one, this is a top-of-band section; otherwise, skim.
+
+Video is its own CDN problem because the "file" is too big to download once. Streaming protocols let the user fetch small chunks as they watch.
+
+```
+HLS (HTTP Live Streaming) — Apple's protocol, industry standard:
+  1. The source video is encoded at multiple bitrates (e.g., 480p, 720p, 1080p, 4K).
+  2. Each bitrate is split into 2-10 second chunks (.ts files).
+  3. A manifest file (.m3u8) lists the chunks and their bitrates.
+  4. The client downloads the manifest, then requests chunks one at a time.
+  5. The client can switch bitrates mid-stream based on bandwidth
+     (adaptive bitrate streaming).
+
+  → The CDN caches the .ts chunks. The manifest is updated as the
+    stream progresses (live) or static (VOD).
+
+DASH (Dynamic Adaptive Streaming over HTTP) — the MPEG standard:
+  Same idea as HLS, but XML-based manifest (.mpd).
+  Used by YouTube, Netflix, and most non-Apple platforms.
+
+WHY THE CDN IS MANDATORY FOR VIDEO:
+  A 1-hour 1080p video ≈ 2 GB.
+  A 4K video ≈ 14 GB.
+  Origin server can serve a few concurrent viewers. CDN can serve millions.
+  Without a CDN, you cannot do video at scale.
+```
 
 ---
 
@@ -2617,6 +3502,110 @@ Alternative: flat with query params
 
 > **Interview tip:** "For our e-commerce API, the URL structure mirrors the resource hierarchy. A user's orders live at `/api/users/{user_id}/orders`. To get a single order, it's `/api/orders/{order_id}`. The flat-with-filter alternative (`/api/orders?user_id=...`) is fine for admin queries but doesn't reflect the user-facing mental model." This is the kind of clear design rationale that scores senior.
 
+#### 5.1.2 BFF — Backend for Frontend
+
+> **Interview relevance: Core.** When the prompt involves multiple client types (mobile + web + partner), BFF is a frequent follow-up. Naming the pattern and the use case (mobile BFF = lean payload, web BFF = rich, partner BFF = scoped auth) scores you points.
+
+When mobile, web, and partner clients all hit the same API, the API becomes the lowest common denominator. The fix is a Backend for Frontend — a custom API tier per client.
+
+```
+THE PROBLEM:
+  The mobile app wants a small JSON payload (low battery, slow network).
+  The web dashboard wants a large JSON payload with related entities.
+  The partner integration wants OAuth + rate limiting per partner.
+
+  A single API endpoint can't serve all three well.
+  You end up with: bloated mobile payload, missing web data, partner
+  security baked into the main app.
+
+THE BFF SOLUTION:
+  One BFF per client type. Each BFF is a thin API layer that:
+    - calls the underlying microservices
+    - aggregates responses (e.g., 3 service calls → 1 mobile response)
+    - shapes the data to the client's needs
+    - enforces client-specific auth, rate limit, and observability
+
+ARCHITECTURE:
+
+  mobile_app   → mobile_bff   ─┐
+                                ├──→ user_service
+  web_app      → web_bff      ─┤    → order_service
+                                ├──→ product_service
+  partner_app  → partner_bff  ─┘    → payment_service
+
+WHY IT MATTERS:
+  - Mobile BFF returns 1KB of carefully shaped JSON instead of a
+    generic 50KB response with 47 fields the app ignores.
+  - Web BFF can pre-compute aggregations the web needs (e.g., "30-day order total").
+  - Partner BFF can enforce partner-specific quotas without
+    leaking partner logic into the main app.
+  - The BFF is also a natural place for client-specific features:
+    push notification token registration on mobile, OAuth flows
+    on web, signed-request generation for partners.
+```
+
+> **The BFF vs API gateway distinction:** The API gateway is a *cross-cutting* layer (auth, rate limit, routing for ALL clients). The BFF is a *client-specific* layer (custom shapes, aggregations, behaviors). You usually have both: gateway in front, BFFs behind the gateway.
+
+> **Interview signal:** "For a system with mobile, web, and partner clients, I'd put a BFF per client in front of the microservices. The mobile BFF returns lean payloads with binary compression; the web BFF returns rich aggregations; the partner BFF enforces partner-specific auth and quotas. The microservices behind them stay simple — they don't have to know who's calling."
+
+#### 5.1.3 API Gateway vs Reverse Proxy vs Load Balancer
+
+> **Interview relevance: Core.** Three boxes get conflated. Naming what each is and which layer it sits at is a frequent interview trap. The combination diagram (CDN → Gateway → Reverse proxy → LB → app) is a strong opener.
+
+These three boxes get conflated. They have different jobs.
+
+```
+REVERSE PROXY (NGINX, HAProxy, Envoy):
+  Job: terminate TLS, forward HTTP requests to backend servers.
+  Knows: HTTP. Doesn't know: who the user is, what the API does.
+  Where: directly in front of app servers.
+
+API GATEWAY (Kong, AWS API Gateway, Apigee):
+  Job: ALL of reverse proxy + per-route auth, rate limiting,
+       transformation, aggregation, observability.
+  Knows: HTTP, the API surface, the user, the rate limit, the contract.
+  Where: at the public edge, in front of all services.
+
+LOAD BALANCER (AWS ALB, GCP LB, F5):
+  Job: distribute traffic across N servers based on a strategy
+       (round-robin, least-conn, IP-hash).
+  Knows: TCP/HTTP, server health. Doesn't know: the API surface.
+  Where: anywhere traffic forks to N backends.
+```
+
+**How they combine in a production stack:**
+
+```
+  Internet
+     │
+  ┌──▼──────────┐   Layer 7 LB (or CDN edge) — terminates TLS, applies WAF,
+  │  CDN/WAF    │   rate limits per IP, blocks junk.
+  └────┬────────┘
+       │
+  ┌────▼─────────┐   API Gateway — per-route auth, per-user rate limit,
+  │  API Gateway │   per-tenant quota, request transformation.
+  └────┬─────────┘
+       │
+  ┌────▼─────────┐   Reverse Proxy / Service Mesh sidecar — TLS termination
+  │  Reverse     │   inside the cluster, retries, circuit breaking.
+  │  Proxy       │
+  └────┬─────────┘
+       │
+  ┌────▼─────────┐   Load Balancer — distribute across N instances of
+  │  Load        │   the app service within a region.
+  │  Balancer    │
+  └────┬─────────┘
+       │
+  ┌────▼─────────┐
+  │ App Service  │   The actual business logic.
+  │ (N instances)│
+  └──────────────┘
+```
+
+> **The interview trap:** "I'll put a load balancer in front." Senior candidates clarify the *type* and *layer*. Saying "a reverse proxy with WAF rules" or "an API gateway with rate limits" is more specific and more senior than "a load balancer."
+
+---
+
 **State codes for CRUD:**
 
 ```
@@ -2665,6 +3654,92 @@ Client: "Any updates?" → Server holds the connection open for 30 sec
 **WebSockets** are a full-duplex protocol. After an HTTP handshake, the connection is upgraded to TCP-level communication where both sides can send at any time. Used by WhatsApp, Slack, Google Docs.
 
 > **Mobile battery note:** A persistent WebSocket connection prevents the mobile radio from going to sleep (consumes battery). For apps where real-time is critical, this is acceptable. For background sync, prefer push notifications over persistent sockets.
+
+#### 5.2.1 MQTT for IoT and WebSocket at Scale
+
+> **Interview relevance: Differentiator.** MQTT only matters for IoT prompts; the WS-at-scale section (connection table, sticky session by user_id) is the senior detail for chat/live-tracking prompts. Pick what's relevant to the question.
+
+The choice between WebSocket, SSE, and MQTT depends on the *device*, not just the architecture.
+
+```
+MQTT (Message Queuing Telemetry Transport):
+  Lightweight pub/sub protocol designed for constrained devices.
+  ✓ Tiny packet overhead (~2 bytes header).
+  ✓ Battery-friendly (sleeps most of the time, wakes for messages).
+  ✓ Runs over TCP. Quality of Service levels (0/1/2).
+  ✗ Not for browser-to-server (browsers don't speak it natively).
+  Use: IoT sensors, smart home devices, fleet telemetry, industrial sensors.
+  Concrete: AWS IoT Core, Azure IoT Hub, HiveMQ, Mosquitto.
+
+WHEN TO USE EACH REAL-TIME PROTOCOL:
+
+  WEB BROWSER CHAT/LIVE FEED:
+    → WebSocket (the only persistent bidirectional option in browsers).
+
+  MOBILE CHAT (foreground):
+    → WebSocket over TLS. Battery impact is acceptable while in use.
+
+  MOBILE BACKGROUND NOTIFICATIONS:
+    → APNs/FCM (push). Don't try to keep a WebSocket alive in the
+      background — the OS will kill it.
+
+  LIVE DASHBOARD (server pushes updates):
+    → SSE is simpler than WebSocket. One-way, low-overhead, browser-native.
+
+  IOT DEVICE TELEMETRY:
+    → MQTT (battery-friendly, tiny overhead, broker handles backpressure).
+
+  HFT / GAMING (lowest latency):
+    → UDP multicast or WebRTC data channels.
+```
+
+**WebSocket at scale — the connection problem:**
+
+```
+THE PROBLEM:
+  10M concurrent WebSocket connections.
+  A single server can hold 100K connections (Linux ulimit, file descriptors,
+  memory per connection, ephemeral port exhaustion).
+  → Need 100+ WebSocket servers.
+
+  Now: how do you route a message to a specific user?
+  - User Bob is connected to server #37.
+  - The chat service wants to send Bob a message.
+  - The chat service needs to look up "which server has Bob?"
+  - Solution: a connection table in Redis.
+    key: user_id → value: server_id
+    - Set on connection open.
+    - Read on every message send.
+    - TTL on the key (heartbeat-driven).
+```
+
+> **Senior signal:** "At 10M concurrent connections, we'd shard the WebSocket gateway by user_id. The connection table in Redis maps user → server. The chat service looks up the server before sending. The gateway auto-scales on connection count, not CPU. Idle connections (no message in 60s) are evicted to free memory."
+
+#### 5.2.2 SSE vs WebSocket — When SSE Wins
+
+> **Interview relevance: Differentiator.** Candidates default to WebSocket. Knowing SSE is simpler for one-way push (live ticker, build status, location feed) is the senior moment. Rarely asked as a topic, but the right answer when the data is one-way.
+
+```
+SSE (Server-Sent Events):
+  Server → Client only. One-way.
+  ✓ Simpler than WebSocket (one HTTP connection, no upgrade).
+  ✓ Auto-reconnect built-in.
+  ✓ Works through HTTP proxies (no upgrade).
+  ✓ Browser-native EventSource API.
+  ✗ One-way (client can't easily send back).
+  ✗ Max 6 connections per browser (HTTP/1.1 limit; HTTP/2 lifts this).
+
+USE SSE WHEN:
+  - The data flows server → client only.
+  - Examples: live stock ticker, news feed, build status, location
+    updates from a fleet, live sports score, log tail in browser.
+  - Senior move: "I'd use SSE for our build pipeline's live status.
+    No need for the full WebSocket overhead; the data is one-way."
+
+USE WEBSOCKET WHEN:
+  - The client also sends data frequently.
+  - Examples: chat, collaborative editing, multiplayer games, trading.
+```
 
 ---
 
@@ -2747,6 +3822,88 @@ Future<void> retryWithBackoff(Future<void> Function() request) async {
   }
 }
 ```
+
+#### 5.4.1 Rate Limiting Algorithms — The Full Comparison
+
+> **Interview relevance: Core.** "How would you rate limit?" is a near-guaranteed follow-up. Naming the algorithm (token bucket, sliding window, etc.) and the tradeoff matrix is required. The "where to enforce" subsection is a senior add-on.
+
+The four canonical algorithms each have a different shape. Naming the algorithm is a senior move; "I'll rate limit" is a junior move.
+
+```
+FIXED WINDOW:
+  Limit: 100 requests per 60 seconds. Reset at the top of the minute.
+  Easy to implement (one counter per key per window).
+  ✗ Boundary problem: 100 requests at 12:00:59 + 100 at 12:01:00
+    = 200 requests in 2 seconds.
+  Use when: simplicity matters more than precision.
+
+SLIDING WINDOW LOG:
+  Store every request timestamp in a sorted set.
+  Count requests in the last 60 seconds.
+  ✓ Smooth — no boundary problem.
+  ✗ Memory grows with request count (high traffic = big sorted set).
+  Use when: precision matters AND traffic is moderate.
+
+SLIDING WINDOW COUNTER (interpolation):
+  Combine the previous window's count with the current one's,
+  weighted by how much of the previous window overlaps the sliding 60s.
+  ✓ Smooth-ish. ✓ Cheap memory.
+  ✗ Approximate.
+  Use when: you need sliding-window precision at fixed-window cost.
+
+TOKEN BUCKET:
+  Bucket holds N tokens, refilled at R/second.
+  Each request consumes 1 token. Bucket empty → reject.
+  ✓ Burst-friendly (a full bucket absorbs a spike).
+  ✓ Cheap (one counter + one timestamp per key).
+  Use when: real APIs (AWS, GCP, Stripe all use this).
+  Concrete: bucket=100 tokens, refill 10/sec → 100 burst + 10/s sustained.
+
+LEAKY BUCKET:
+  Requests enter a queue; processed at fixed rate; overflow rejected.
+  ✗ NOT burst-friendly (queue overflows).
+  ✓ Output rate is constant (good for traffic shaping).
+  Use when: you need a constant egress rate, not a burst-tolerant one.
+  Concrete: process webhook deliveries at exactly 100/s regardless of input.
+```
+
+| | Burst | Smooth | Memory | Used by |
+|---|---|---|---|---|
+| Fixed window | High | No | Cheap | Most basic systems |
+| Sliding log | Low | Yes | High | Strict fairness |
+| Sliding counter | Low | Approx | Cheap | Most production systems |
+| Token bucket | High | Yes | Cheap | AWS, GCP, Stripe APIs |
+| Leaky bucket | None | Yes | Cheap | Traffic shapers, webhook senders |
+
+> **Interview signal:** "I'd use a token bucket in Redis: 100 token capacity, 10 tokens/sec refill, 1 token per request. This gives a 100-request burst tolerance with a 10-rps steady-state ceiling, which matches our normal-vs-abusive user pattern."
+
+#### 5.4.2 Where to Enforce Rate Limiting
+
+> **Interview relevance: Differentiator.** Names the layered rule (edge / gateway / application). Useful when the interviewer pushes on "where does rate limiting actually happen?" Top-of-band: saying "per-user in the gateway, per-business-rule in the app."
+
+> The key insight: enforcement point matters as much as algorithm.
+
+```
+EDGE (CDN / WAF):
+  Block the obvious junk before it touches your infra.
+  Use: Cloudflare rate-limit rules, AWS WAF rate-based rules.
+  Blocks: scanner traffic, layer-7 DDoS, geographic blocks.
+  ✓ Free tier covers most abuse; zero infra cost.
+  ✗ Coarse (per-IP, not per-user).
+
+API GATEWAY:
+  Per-user, per-tenant, per-API-key rate limits.
+  Use: Kong, AWS API Gateway, Apigee, Cloudflare Gateway.
+  ✓ Centralized, easy to update rules, observability.
+  ✗ Single point of failure (mitigated by being a managed service).
+
+APPLICATION:
+  Per-business-logic rate limit (e.g., "10 booking attempts per user per minute").
+  ✓ Most flexible, knows the business semantics.
+  ✗ Costs app-tier resources to enforce.
+```
+
+> **The layered rule of thumb:** Edge for junk, gateway for per-user, application for business logic. Don't try to do business-logic rate limiting at the edge — the edge doesn't know what's a "booking attempt."
 
 ---
 
@@ -2831,85 +3988,209 @@ Client                              Server
 
 > **Interview framing:** "I'd use TCP for the booking API because correctness matters more than microseconds. I'd use UDP only for the live video stream of a therapy session — a dropped frame is fine, but reordering or delay would be jarring."
 
-#### DNS — The Internet's Phone Book
+#### 5.5.1 Protocol vs API — The Distinction
 
-Humans remember `google.com`. Computers need `142.250.80.46`. **DNS (Domain Name System)** translates between the two.
+> **Interview relevance: Differentiator.** Candidates conflate them. Knowing the envelope vs contract distinction is a quick differentiator; rarely asked but cleanly senior.
 
-```
-You type https://api.therapistapp.com in the browser.
-
-Browser asks the OS → "do I have a cached DNS entry for this?"
-  → Yes, recent → use it. Done in <1ms.
-  → No → OS asks the configured DNS resolver (often your ISP, or 8.8.8.8).
-       Resolver asks the root nameserver → "who handles .com?"
-       → .com TLD nameserver → "who handles therapistapp.com?"
-       → authoritative nameserver for therapistapp.com → "api.therapistapp.com is 203.0.113.42"
-       → Resolver caches and returns the IP to your browser.
-       → Browser connects to 203.0.113.42.
-
-Total round-trip if uncached: typically 20-120ms.
-```
-
-**Why this matters in design:** DNS is the first request on the critical path of every user action. A slow DNS resolver adds latency to *every* page load. CDNs and edge networks often co-locate DNS resolvers to cut this to <5ms.
-
-**ICANN** (Internet Corporation for Assigned Names and Numbers) is the nonprofit that coordinates the global DNS root and IP space. **Registrars** like Namecheap, GoDaddy, Google Domains are accredited by ICANN to sell you a domain name.
-
-**Common DNS record types you'll see in design docs:**
-
-| Record | Purpose | Example |
-|--------|---------|---------|
-| **A** | Domain → IPv4 address | `api.app.com → 203.0.113.42` |
-| **AAAA** | Domain → IPv6 address | `api.app.com → 2001:db8::1` |
-| **CNAME** | Domain → another domain (alias) | `www.app.com → app.com` |
-| **MX** | Mail server for the domain | `app.com → mail.app.com` |
-| **TXT** | Free-form text (used for verification, SPF, DKIM) | `"v=spf1 include:_spf.google.com ~all"` |
-| **NS** | Authoritative nameservers for the domain | `app.com → ns1.awsdns.com` |
-
-> **Interview tip:** If you propose a multi-region design, mention that you'd use a **latency-based DNS policy** (Route 53, Cloudflare) to return the IP of the region closest to the user.
-
-#### Ports and Firewalls
-
-A **port** is a 16-bit number (0-65535) that identifies *which application* on a device should receive a packet. The IP gets the packet to the right machine; the port gets it to the right process.
+"Use HTTP" and "use REST" mean different things. The protocol is the transport; the API is the contract. Confusing them in an interview is a senior-engineer trap.
 
 ```
-IP:    203.0.113.42     ← which server
-Port:  443               ← which process on that server
+PROTOCOL (the envelope):
+  The wire format and the rules for sending and receiving data.
+  Examples: HTTP, HTTP/2, HTTP/3 (QUIC), TCP, UDP, gRPC, WebSocket, SMTP, MQTT.
+  → How data gets from A to B.
+
+API STYLE (the contract):
+  The shape of the requests and responses; the semantics.
+  Examples: REST, GraphQL, gRPC, SOAP, WebSocket message format.
+  → What the data means and how it's organized.
+
+PAIRS:
+  HTTP (protocol) + REST (API style)  — the most common.
+  HTTP (protocol) + GraphQL (API style).
+  HTTP (protocol) + gRPC (API style) — gRPC is actually a framework, not a protocol.
+  TCP (protocol) + custom binary protocol (API style) — high-performance systems.
+  WebSocket (protocol) + STOMP or custom JSON (API style) — real-time apps.
 ```
 
-**Well-known ports you'll see in designs:**
+> **Senior signal:** "The protocol is HTTP/2 over TLS; the API is REST with JSON payloads." Naming the protocol AND the API is more senior than just "use HTTP."
 
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 22 | SSH | Secure remote shell |
-| 25 | SMTP | Outgoing email |
-| 80 | HTTP | Unencrypted web |
-| 443 | HTTPS | Encrypted web (TLS) |
-| 3306 | MySQL | Database |
-| 5432 | PostgreSQL | Database |
-| 6379 | Redis | Cache |
-| 27017 | MongoDB | Database |
+#### 5.5.2 HTTP/1, HTTP/2, HTTP/3
 
-> **Interview tip:** If you say "we exposed PostgreSQL on 5432 to the application server," an interviewer may ask "is the database on a public IP?" The right answer: **no, the database lives on a private network; only the app server reaches it.** A **firewall** sits at the network boundary, blocking unsolicited inbound traffic.
+> **Interview relevance: Differentiator.** Naming the version (HTTP/2 from CDN, HTTP/3 for mobile) is a senior moment. Not required, but cheap to know.
 
-A **firewall** monitors and filters incoming and outgoing network traffic based on rules. In an interview, "I'd put a firewall in front of the database" means: only the application server's IP can talk to the DB on 5432, everything else is dropped.
-
-#### Putting It Together — A Full Request's Journey
-
-When your mobile app calls `GET https://api.app.com/therapists`:
+Most candidates say "HTTP" and stop. The senior answer names the version.
 
 ```
-1. DNS lookup:       api.app.com → 203.0.113.42        (~20ms cold, <1ms warm)
-2. TCP handshake:    SYN → SYN-ACK → ACK                (~50ms over 4G)
-3. TLS handshake:    client hello → server hello → ...  (~100ms first time)
-4. HTTP request:     "GET /therapists HTTP/1.1\r\n..."
-5. Server processing
-6. HTTP response:    200 OK + JSON body
-7. (TCP connection kept alive for reuse)
+HTTP/1.1 (1997):
+  ✓ Text-based. Universal. Simple.
+  ✗ One request per TCP connection (or queue them).
+  ✗ Head-of-line blocking: slow request blocks the next one.
+  ✗ Large headers repeated on every request.
+
+HTTP/2 (2015):
+  ✓ Binary framing.
+  ✓ Multiplexed: many requests on ONE TCP connection, interleaved.
+  ✓ Header compression (HPACK).
+  ✓ Server push (server can send resources before client asks).
+  ✗ Still uses TCP — head-of-line blocking at the TCP level remains.
+  → Today: this is the default. Most CDNs terminate HTTP/1.1 from
+    the client and speak HTTP/2 to the origin.
+
+HTTP/3 (2022, in deployment):
+  ✓ Replaces TCP with QUIC (UDP-based reliable transport).
+  ✓ No head-of-line blocking per stream.
+  ✓ Faster handshake (0-RTT possible).
+  ✓ Better on lossy networks (mobile, satellite).
+  → Use when: serving mobile users, real-time apps.
+  → Status: Cloudflare, Google, Facebook all serve HTTP/3 today.
 ```
 
-This is why "make the API faster" can mean: cache the DNS result, reuse the TCP connection (HTTP/1.1 keep-alive, HTTP/2 multiplexing), move closer to the user (CDN/edge), or do the work faster on the server.
+> **Interview signal:** "Our public API is served over HTTP/2 from the CDN to clients. The CDN terminates HTTP/1.1 from older clients and speaks HTTP/2 to the origin. For our mobile clients, we can opt into HTTP/3 for faster cold-start on cellular networks."
 
-> **Senior signal:** When asked "how would you reduce latency?", a junior says "make the server faster." A senior lists which of the 7 steps dominates and attacks that one. On mobile networks, steps 2-3 (TCP + TLS) often dominate the first request — connection coalescing, TLS session resumption, and HTTP/2 help a lot.
+#### 5.5.3 Private Subnet Topology
+
+> **Interview relevance: Differentiator.** The ALB-in-public-subnet / app-in-private / DB-in-isolated layout is the standard production answer. Not asked as a topic, but it shows up implicitly when you say "the database has no public IP."
+
+```
+THE STANDARD AWS / GCP SUBNET LAYOUT:
+
+  ┌────────────────────────────────────────────────────────┐
+  │  VPC: 10.0.0.0/16                                      │
+  │                                                         │
+  │  ┌──────────────────────────────────────┐               │
+  │  │  Public subnet: 10.0.1.0/24          │               │
+  │  │  Hosts:                              │               │
+  │  │    - ALB (Application Load Balancer)  │               │
+  │  │    - NAT Gateway (for outbound)       │               │
+  │  │    - Bastion host (SSH in)           │               │
+  │  │  Internet-facing, has public IPs.    │               │
+  │  └──────────────────────────────────────┘               │
+  │                                                         │
+  │  ┌──────────────────────────────────────┐               │
+  │  │  Private subnet: 10.0.10.0/24        │               │
+  │  │  Hosts:                              │               │
+  │  │    - App servers (ECS, EKS, EC2)     │               │
+  │  │    - Internal services               │               │
+  │  │  No public IP. Outbound via NAT GW.  │               │
+  │  │  Inbound only from ALB.              │               │
+  │  └──────────────────────────────────────┘               │
+  │                                                         │
+  │  ┌──────────────────────────────────────┐               │
+  │  │  Isolated subnet: 10.0.20.0/24       │               │
+  │  │  Hosts:                              │               │
+  │  │    - RDS database                    │               │
+  │  │    - ElastiCache (Redis)              │               │
+  │  │  No public IP. No outbound.          │               │
+  │  │  Inbound only from app servers.      │               │
+  │  └──────────────────────────────────────┘               │
+  │                                                         │
+  └────────────────────────────────────────────────────────┘
+```
+
+**Why this matters in the interview:**
+
+```
+- "The DB is in an isolated subnet" → answers "what if someone tries
+  to connect to the DB from the internet?" (They can't.)
+- "App servers are in a private subnet" → answers "how does an
+  attacker reach them?" (Only through the ALB, which has WAF rules.)
+- "The ALB is the only public-facing component" → answers
+  "what's the minimum attack surface?" (One component to harden.)
+```
+
+> **Senior signal:** "The database lives in an isolated subnet — no public IP, no outbound internet. The app servers are in a private subnet; they reach the internet for outbound (npm, GitHub) via the NAT gateway. The ALB is the only public-facing component, fronted by a WAF."
+
+#### 5.5.4 TCP/UDP/RPC Cheat Sheet
+
+> **Interview relevance: Differentiator.** TCP vs UDP comes up occasionally. QUIC and gRPC are nice-to-know senior moments.
+
+```
+TCP — Transmission Control Protocol:
+  ✓ Reliable, ordered, error-checked.
+  ✓ Connection-oriented (3-way handshake).
+  ✗ Overhead (3-way handshake, ACKs, retransmits).
+  Use: HTTP, HTTPS, SSH, file transfer, email, database protocols.
+  Concrete: AWS NLB, gRPC, all major databases.
+
+UDP — User Datagram Protocol:
+  ✓ No handshake. Send and forget.
+  ✓ Low latency. No retransmission overhead.
+  ✗ No delivery guarantee. No ordering.
+  Use: live video (WebRTC, Zoom), voice (VoIP), live gaming,
+       DNS (yes, even DNS uses UDP), IoT telemetry, HFT multicast.
+  Concrete: WebRTC uses UDP; HFT uses UDP multicast; DNS uses UDP.
+
+QUIC (Quick UDP Internet Connections):
+  ✓ UDP-based, but adds reliability and multiplexing.
+  ✓ 0-RTT handshake (faster than TCP's 1-RTT).
+  ✓ No head-of-line blocking per stream.
+  ✓ Built-in TLS 1.3.
+  → Use as: the transport under HTTP/3.
+
+RPC (Remote Procedure Call):
+  ✓ Function call over the network. The wire format is language-neutral.
+  ✓ Schema-first (Protobuf, Thrift, Avro).
+  ✓ Type-safe, fast, code-generated stubs.
+  ✗ Tighter coupling than message-based systems.
+  Use: service-to-service in microservices.
+  Concrete: gRPC (the dominant one), Apache Thrift, Cap'n Proto, Avro.
+```
+
+> **The interview answer:** "For our service-to-service calls, I'd use gRPC over HTTP/2. Schema is defined in Protobuf; code-generated stubs in each language. For our public API, I'd use REST/JSON over HTTP/2 for compatibility with browsers and mobile clients. For our live presence feed, I'd use WebSocket over TLS."
+
+#### 5.5.5 DNS — Record Types and TTL
+
+> **Interview relevance: Differentiator.** Record types: skip. TTL tradeoff: useful when the interviewer asks "how fast can you fail over?" — answer is bounded by DNS TTL.
+
+The "DNS" question can go from "what is it" to "what's a TTL tradeoff" in two questions. Be ready.
+
+```
+THE COMMON DNS RECORD TYPES:
+
+  A:     maps a hostname to an IPv4 address.
+         api.example.com → 203.0.113.42
+
+  AAAA:  same, but IPv6.
+         api.example.com → 2001:db8::1
+
+  CNAME: maps a hostname to ANOTHER hostname (alias).
+         www.example.com → example.com
+
+  MX:    mail server for a domain.
+         example.com → mail.example.com (priority 10)
+
+  TXT:   free-form text. Used for SPF (email), domain verification,
+         DKIM, site ownership, ACME challenges (Let's Encrypt).
+
+  NS:    authoritative name servers for the domain.
+         example.com → ns1.awsdns.com
+
+  SRV:   service location (host + port).
+         _sip._tcp.example.com → sip.example.com:5060
+```
+
+**TTL — the DNS tradeoff:**
+
+```
+SHORT TTL (60s - 300s):
+  ✓ Fast failover (DNS change propagates in ~1 minute).
+  ✗ More DNS queries (more load on resolvers, more cost).
+  ✗ "Stale DNS" risk: some resolvers ignore TTL and cache longer.
+  → Use for: production services, regions that fail over often.
+
+LONG TTL (1 day - 1 week):
+  ✓ Cheap (fewer queries).
+  ✓ Consistent routing.
+  ✗ Slow failover (the change takes hours to propagate).
+  → Use for: static infrastructure that doesn't change.
+
+THE GOLDEN RULE:
+  Set TTL to be SHORTER than your worst acceptable failover time.
+  If you need to fail over in 5 min, TTL must be <5 min.
+```
+
+> **Senior signal:** "For our primary region, I'd set DNS TTL to 60 seconds. That lets us fail over to the secondary region in ~2 minutes (TTL + propagation). For our static marketing site, TTL can be 24 hours — it's a CloudFront URL, it doesn't change."
 
 ---
 
@@ -3127,6 +4408,151 @@ When you propose a design, name the trade-off against these three pillars explic
 
 > **Senior signal:** Naming a trade-off against a *named* pillar (scalability, maintainability, efficiency) is dramatically more senior than "it's a trade-off." It shows you have a framework, not just an opinion.
 
+#### 6.0.1 Architecture Styles — Monolith, Modular Monolith, Microservices, Serverless
+
+> **Interview relevance: Core.** A favorite interview opener. Knowing the four styles + when each fits (team size, scale, domain clarity) is one of the most-tested topics in senior rounds.
+
+"Microservices" is the most over-used word in system design. Knowing when NOT to use them is the senior move. The right answer depends on team size, domain clarity, and scale.
+
+```
+MONOLITH:
+  One single deployable. All features live in one codebase, one process.
+  ✓ Simple to develop, test, deploy.
+  ✓ One DB, one repo, one CI pipeline.
+  ✗ Any deploy requires the whole app to redeploy.
+  ✗ One slow feature can starve the whole process.
+  ✗ Scaling is vertical (bigger box) — you can't scale the chat
+    service without scaling the entire app.
+  → Use when: tiny team (<5 devs), unclear domain, MVP, single-tenant.
+
+MODULAR MONOLITH (the senior default):
+  One deployable, BUT the code is organized into modules with
+  clear boundaries. Each module owns its data; cross-module calls
+  go through internal APIs.
+  ✓ One deploy, but modules can be extracted to services later.
+  ✓ Vertical scaling is still simple.
+  ✗ Still one process; one slow module affects all (though
+    less than a true monolith because of isolation).
+  → Use when: small-to-medium team (5-20 devs), domain is starting
+    to clarify, you want to defer the microservices decision.
+
+MICROSERVICES:
+  Many small services. Each owns its data. Services communicate
+  over the network.
+  ✓ Independent deploy, independent scale per service.
+  ✓ Teams own their service end-to-end.
+  ✗ Operational cost is massive (deploy, monitor, debug N services).
+  ✗ Distributed-system problems: partial failure, latency, consistency.
+  ✗ Cross-service transactions are hard (saga, eventual consistency).
+  → Use when: large team (20+ devs), clear bounded contexts, the
+    cost of coordination > the cost of operation.
+
+SERVERLESS (FaaS):
+  Functions triggered by events. No server management.
+  ✓ Zero ops for the function itself.
+  ✓ Auto-scales to zero when idle (cost-efficient for spiky load).
+  ✗ Cold start (the first request after idle pays a latency tax).
+  ✗ Per-request pricing can be expensive for steady high traffic.
+  ✗ Vendor lock-in.
+  → Use when: spiky async work (image resize on upload, scheduled
+    jobs, webhook receivers). NOT for steady-state request paths.
+```
+
+| | Monolith | Modular Monolith | Microservices | Serverless |
+|---|---|---|---|---|
+| Team size | <5 | 5-20 | 20+ | any |
+| Deploy cadence | weekly | weekly | per service | per function |
+| Operational cost | low | low | high | very low (managed) |
+| Latency overhead | none | none | per-call network | cold start |
+| Failure isolation | none | partial | full | per-function |
+| Best for | MVP, internal tools | most production systems | large orgs, clear domains | spiky async, glue code |
+
+> **Senior signal:** "For a 5-person team building a B2B SaaS, I'd start with a modular monolith. We can split out a service when there's a clear scaling or team-boundary reason — not before. Microservices are an answer to organizational problems first, technical problems second."
+
+#### 6.0.2 Concurrency vs Parallelism
+
+> **Interview relevance: Differentiator.** Two words candidates mix up. Knowing the distinction is a quick differentiator; rarely asked directly but shows up in "how do you scale the chat service?"
+
+These are two different things. Confusing them in an interview is a senior mistake.
+
+```
+CONCURRENCY:
+  Dealing with many things at once.
+  A single Node.js process handles 10K WebSocket connections at
+  once — but only runs one piece of JS at a time.
+  ✓ Makes progress on multiple tasks.
+  ✗ Doesn't necessarily make individual tasks faster.
+
+PARALLELISM:
+  Doing many things at once.
+  10 worker processes each handling 1K connections — running on
+  10 cores simultaneously.
+  ✓ Makes individual tasks faster (when CPU-bound).
+  ✗ Requires multiple cores/machines.
+
+WHEN EACH MATTERS:
+  I/O-bound work (API calls, DB queries, network):
+    Concurrency is enough. You don't need 10 cores;
+    you need 10K concurrent in-flight requests.
+    → Node.js, Go, Elixir all shine here.
+
+  CPU-bound work (image processing, ML inference, encryption):
+    Parallelism is required. You need 10 cores actually working.
+    → Python with multiprocessing, C++ with threads, Go with goroutines
+      across N CPUs.
+```
+
+> **Senior signal:** "For our chat service, the work is I/O-bound (waiting for messages, network). I'll use Go with goroutines — concurrency handles 100K connections per process without parallelism. For the ML moderation service, the work is CPU-bound (model inference). I'll scale horizontally across machines, not just within one process."
+
+#### 6.0.3 Service Mesh — When the Plumbing Becomes a Product
+
+> **Interview relevance: Differentiator.** Only relevant once you have 10+ microservices. Senior candidates name Istio/Linkerd unprompted when discussing east-west traffic. Skip for small-system prompts.
+
+When you have 20+ microservices, every service ends up reimplementing the same plumbing: retries, timeouts, circuit breaking, mTLS, observability. A service mesh moves that plumbing out of the app and into a sidecar.
+
+```
+THE PROBLEM:
+  Service A calls Service B.
+  A needs to: set a timeout, retry on failure, break the circuit
+  if B is down, encrypt the call with mTLS, log the call,
+  emit a metric, trace it across services.
+  → This code is the same in every service. 50 services × 200 lines
+    of plumbing = 10K lines of duplicated, brittle code.
+
+THE SERVICE MESH SOLUTION:
+  Every service runs with a sidecar proxy (Envoy, Linkerd-proxy).
+  All traffic goes through the sidecar.
+  The sidecar handles: retries, timeouts, mTLS, circuit breaking,
+  metrics, tracing, header propagation.
+  → The application code is clean: "call Service B."
+  → The mesh handles everything else.
+
+ARCHITECTURE:
+  Service A ────► Sidecar A ────► Sidecar B ────► Service B
+  (application)  (Envoy)         (Envoy)         (application)
+                       │                              │
+                  retry, mTLS,                   retry, mTLS,
+                  timeout,                       timeout,
+                  metrics                       metrics
+
+EXAMPLES: Istio, Linkerd, Consul Connect.
+```
+
+> **When to reach for a service mesh:**
+
+```
+YOU HAVE:
+  - 10+ microservices
+  - mixed languages (Go, Python, Java, Node) — every team would
+    reimplement retries/timeouts in their own language
+  - compliance requires mTLS between services
+  - on-call is hard because there's no consistent observability
+
+YOU DON'T HAVE:
+  - 3 services and a queue. Just use a client library.
+  - 1 service. Definitely don't add a mesh.
+```
+
 ---
 
 ### 6.1 Load Balancing Strategies
@@ -3180,6 +4606,104 @@ Most production setups use both. A dead server is caught by active probes; a slo
 | **Virtual / Software-defined ADC** | F5 NGINX Plus, Citrix ADC VPX, VMware AVI | Deploy the "hardware" experience as software (on a VM or in the cloud). Used in hybrid setups. |
 
 > **Interview tip:** If your design is on AWS, you don't even draw a load balancer box — you just say "an ALB terminates TLS and routes to an ASG of app servers." The interviewer will smile. If you're on-prem, "HAProxy doing TCP load balancing" is the safe answer.
+
+#### 6.1.2 L4 vs L7 Load Balancers
+
+> **Interview relevance: Core.** "What kind of load balancer?" is a common follow-up. Naming the layer + a concrete example (NLB vs ALB) is required.
+
+"A load balancer" is too vague. The senior answer names the *layer* of the OSI model the LB operates at.
+
+```
+L4 LOAD BALANCER (transport layer, TCP/UDP):
+  - Routes based on IP and port.
+  - Doesn't look at the payload.
+  - Very fast: just a hash of the connection's 4-tuple.
+  - Examples: AWS NLB, HAProxy (in TCP mode), LVS, F5 LTM.
+  - Use when: extreme throughput (millions of connections), non-HTTP
+    traffic (gRPC over TCP, raw TCP services, game servers, video).
+
+L7 LOAD BALANCER (application layer, HTTP):
+  - Routes based on URL, headers, cookies, body.
+  - Can do path-based routing: /api → API service; /static → CDN.
+  - Can do host-based routing: api.app.com vs admin.app.com.
+  - Examples: AWS ALB, NGINX, HAProxy (in HTTP mode), Envoy, Traefik.
+  - Use when: HTTP/HTTPS traffic; you need header/URL-aware routing.
+  - Slower than L4 (it parses the request), but infinitely more flexible.
+```
+
+**Choosing between L4 and L7:**
+
+```
+"The whole request is one TCP connection and we want maximum throughput"
+  → L4 (NLB, or HAProxy in TCP mode).
+
+"We want /api/* routed to the API service, /static/* to the CDN,
+ and /admin/* to the admin service"
+  → L7 (ALB, NGINX, Envoy).
+
+"WebSocket connections that hold for hours"
+  → Either, but L7 is more common (ALB has WebSocket support).
+
+"gRPC with header-based routing (route by service name)"
+  → L7 (Envoy, ALB with gRPC support).
+
+"Game server traffic, custom binary protocol"
+  → L4.
+```
+
+> **Senior signal:** "For the public-facing API I'd use an L7 LB (ALB or NGINX) to do path-based routing, header inspection, and WAF rules. For the internal east-west traffic between microservices, I'd use Envoy sidecars (service mesh) which act as L7 LBs at every hop."
+
+#### 6.1.3 Sticky Sessions and Their Tradeoffs
+
+> **Interview relevance: Differentiator.** Almost never asked directly. Useful when discussing WebSocket scaling or in-memory session design.
+
+"Sticky session" is a way to make a stateless LB behave statefully. It has a cost; know when it's worth it.
+
+```
+STICKY SESSION (session affinity):
+  The LB routes all requests from the same client to the same backend.
+  Implementations: IP hash, cookie-based, TLS session ID.
+
+  ✓ Server-local state survives across requests (in-memory session, cache).
+  ✓ WebSocket connections stay on the same server (no re-handshake).
+  ✗ Uneven load: one heavy user sticks to one server; if they're a
+    power user, that server gets hammered.
+  ✗ Server restart loses the session.
+  ✗ Doesn't survive across regions.
+
+ALTERNATIVE: externalize the session.
+  - Session data lives in Redis, not in server memory.
+  - Any server can serve any request; load is truly even.
+  - This is the senior default.
+```
+
+> **Senior signal:** "I'd default to stateless app servers with sessions in Redis. Only use sticky sessions when the cost of externalizing state is higher than the cost of uneven load — for example, WebSocket-heavy chat where the connection state is large and per-connection."
+
+#### 6.1.4 Active vs Passive Health Checks
+
+> **Interview relevance: Differentiator.** Rare. Useful when the interviewer asks "how does the LB know a server is broken?" or "what if the server returns 200 but is slow?"
+
+```
+ACTIVE HEALTH CHECKS:
+  The LB probes each server on a schedule ("GET /healthz every 5s").
+  ✓ Catches dead servers (no response).
+  ✗ Catches "the server responds but is degraded" only if the
+    /healthz endpoint does a deep check.
+  ✗ Adds load (every probe is a real request).
+  ✗ Probe interval is a tradeoff: too long → slow detection;
+    too short → wasted load.
+
+PASSIVE HEALTH CHECKS:
+  The LB watches real responses.
+  If >50% of the last 100 requests to a server errored, mark unhealthy.
+  ✓ Catches slow servers (they look "degraded" via response time).
+  ✓ No extra load (uses real traffic).
+  ✗ Requires bad traffic to detect bad servers (the canary in the coal mine).
+  ✗ Slow at low traffic: 100 requests can take minutes for low-QPS services.
+
+THE RIGHT ANSWER: BOTH.
+  Active for fast failure detection; passive for slow / partial failure.
+```
 
 ---
 
@@ -3394,6 +4918,37 @@ Examples:
 - **Soft state:** State may change without input (as replicas sync)
 - **Eventually consistent:** The system will _eventually_ converge to consistency
 
+#### 6.4.1 P Always Happens — The Real Choice Is C vs A
+
+> **Interview relevance: Core.** This is the most important CAP reframing. The senior answer is "P always happens; the real choice is C vs A." This comes up any time distributed systems are discussed.
+
+Most candidates learn CAP as a 3-way tradeoff. The senior reframing is that P (partition) is not a choice — it always happens in any real distributed system. The actual choice is C vs A *given that P has occurred*.
+
+```
+THE TRUTH ABOUT CAP:
+  In theory: choose any 2 of C, A, P.
+  In practice: P always happens (networks fail, datacenters disconnect).
+  → The real choice is between C and A when P occurs.
+  → A "CA" system is one that doesn't distribute the data (single node).
+
+EXAMPLES OF CP SYSTEMS (refuse reads or writes during partition):
+  → Banking (Postgres, Oracle, HBase)
+  → ZooKeeper, etcd (consensus-based)
+  → Anything that has "is the leader alive?" semantics
+  → Coordination services (must agree on state)
+
+EXAMPLES OF AP SYSTEMS (serve possibly-stale data during partition):
+  → Cassandra, DynamoDB, Riak
+  → DNS (always serves; TTL is the "staleness" knob)
+  → CDN (always serves from edge; revalidates on miss)
+  → Most caches (Redis can be AP if not in cluster mode)
+  → Social media feeds, shopping carts, counters
+```
+
+> **Interview signal:** "In our payment service, I'd choose CP — a network partition means we refuse to write the payment rather than risk double-charging. In the user's notification feed, I'd choose AP — better to show a slightly stale notification than fail to load the feed at all."
+
+> **The "I chose AP because CAP" trap:** Choosing AP is not free. You must have an explicit strategy for handling stale data: read repair, anti-entropy, vector clocks, CRDTs, or last-write-wins. Naming the conflict-resolution strategy is senior.
+
 ---
 
 ### 6.5 Consistent Hashing (Revisited in Context)
@@ -3526,6 +5081,84 @@ Benefits:
 - **Peak load handling:** Queue absorbs bursts; workers process at their own pace
 - **Retry logic:** Failed jobs can be retried automatically
 
+#### 7.1.1 Queues as a Shock Absorber — Stress-Test Cases
+
+> **Interview relevance: Differentiator.** Not asked as a topic, but the canonical examples (ticket sale, image upload, payment webhook) are useful real-world anchors when justifying the queue in your design.
+
+Every "why use a queue" answer is more convincing when paired with a real spike scenario. These are the canonical examples.
+
+```
+TICKET SALE (flash sale, concert drop):
+  Without queue: 100K requests hit 10 servers → all servers crash.
+  With queue: 100K requests land in the queue. Workers process
+              at 1K/sec. Everyone who got in gets a ticket.
+  → Concrete: Ticketmaster, StubHub, Eventbrite.
+
+PAYMENT PROCESSING (webhook redelivery):
+  Without queue: webhook handler calls Stripe API synchronously;
+                 Stripe slows down; your handler queue builds up;
+                 you start timing out.
+  With queue: webhook lands in queue, worker processes with its
+              own timeout, retries on failure.
+  → Concrete: every payment integration (Stripe, PayPal, Adyen).
+
+IMAGE UPLOAD (slow transcoding):
+  Without queue: user uploads a 200MB video, server transcodes
+                 to 3 resolutions, takes 90 seconds, user waits.
+  With queue: upload returns "processing" in 200ms; worker
+              transcodes async, user gets notification when ready.
+  → Concrete: YouTube, Instagram, TikTok.
+
+BLACK FRIDAY / CYBER MONDAY:
+  Without queue: 10x normal traffic → site is down for hours.
+  With queue: queue depth grows; auto-scaler spins up workers;
+              queue drains after the peak.
+  → Concrete: every retail site that survived Black Friday.
+
+EMAIL/SMS DELIVERY:
+  Without queue: send-time API call; provider outage = your users
+                 don't get notified.
+  With queue: queue absorbs; worker retries; eventual delivery.
+  → Concrete: SendGrid, Mailgun, Twilio consumers.
+```
+
+> **Senior signal:** "I'd put a queue between the API and the worker for the slow or unreliable work. This gives the user a fast response, decouples the API from downstream failure, and lets me scale workers independently of API servers."
+
+#### 7.1.2 Fan-Out from One Event to Many Workers
+
+> **Interview relevance: Core.** Fan-out is a frequent topic — photo upload → thumbnails + moderation + search + notification is a canonical example. Naming the pattern and the consumer-group model scores well.
+
+A single event can trigger many independent actions. The fan-out pattern is the canonical way to do this.
+
+```
+SCENARIO: A new photo is uploaded to a social app.
+
+ONE EVENT: "photo.uploaded { user_id, photo_id, url }"
+
+FAN-OUT TO MANY WORKERS (each does its own job):
+  - Thumbnail worker: generate small/medium/large thumbnails → store in S3
+  - Moderation worker:  send to ML model for NSFW detection
+  - Search worker:      index in Elasticsearch
+  - Notification worker: alert followers ("Alice posted a new photo")
+  - Analytics worker:   increment "photos uploaded" counter
+
+ARCHITECTURE:
+  upload API → Kafka topic "photo.uploaded"
+                     │
+        ┌────────────┼────────────┬────────────┐
+        ▼            ▼            ▼            ▼
+  thumbnail_w  moderation_w  search_w   notification_w
+  (own group)   (own group)  (own group)  (own group)
+
+EACH WORKER GROUP:
+  - reads the topic at its own pace
+  - scales independently
+  - can fail without affecting the others
+  - can be added later without changing the producer
+```
+
+> **Senior signal:** "When one event triggers multiple side effects, I'd put it on a Kafka topic and have one consumer group per side effect. This lets each team own its own consumer, scale it independently, and deploy without coordinating with anyone else."
+
 ---
 
 ### 7.2 Message Queue vs Pub/Sub
@@ -3615,6 +5248,173 @@ Main Queue → Worker fails 5 times → Message → DLQ
 ```
 
 Always configure a DLQ. Otherwise, a poison pill message (one that always causes a crash) will cause your worker to retry forever, blocking the queue.
+
+#### 7.6.1 Ordering Keys and the Partitioning Trick
+
+> **Interview relevance: Core.** If you mention a queue, the interviewer will likely ask "how do you preserve order?" The right answer is "key the partition by the entity (orderId, chatRoomId, paymentId)." Required, not extra.
+
+The biggest "I lost data" trap in queues is wrong partitioning. Same-key messages must land in the same partition to preserve order.
+
+```
+SCENARIO: Order events for one order must be processed in order
+          (created → paid → shipped → delivered).
+
+WRONG (no key):
+  - All "order.created" and "order.paid" events for order 123
+    and order 456 are mixed across partitions.
+  - Consumer pool A reads partition 1: order 123 paid before created.
+  - Wrong state.
+
+RIGHT (key = order_id):
+  - All events for order 123 always go to partition X.
+  - All events for order 456 always go to partition Y.
+  - One consumer (or one consumer group) reads each partition in order.
+  - Ordering preserved PER ORDER, even when the system is massively parallel.
+```
+
+**The "noisy neighbor" problem and per-tenant partitioning:**
+
+```
+SCENARIO: One B2B customer emits 100K events/minute. The other
+          1000 customers emit 1K events/minute total.
+
+WRONG (single partition for "all events"):
+  - That B2B customer's events saturate the single partition.
+  - All other customers are stuck waiting.
+
+RIGHT (key = tenant_id, or explicit tenant-aware partitioner):
+  - The noisy tenant gets its own partition (or set of partitions).
+  - Other tenants are unaffected.
+```
+
+#### 7.6.2 Queue Capacity by Little's Law
+
+> **Interview relevance: Core.** The throughput math (per-partition λ = 1/W) is the right way to answer "how many consumers do I need?" Cheap to memorize, high signal.
+
+A single queue partition is bounded by a single consumer's throughput. The system ceiling is the number of partitions × the per-partition ceiling.
+
+```
+GIVEN:
+  - 1 consumer per partition
+  - each message takes 100ms to process
+  - 10 partitions, 10 consumers
+
+PER-PARTITION THROUGHPUT:
+  λ_partition = 1 / W = 1 / 0.1s = 10 msg/sec
+
+SYSTEM THROUGHPUT:
+  λ_system = partitions × λ_partition = 10 × 10 = 100 msg/sec
+
+  → To get 10K msg/sec, you need 10K/10 = 1000 partitions.
+  → Adding partitions = adding consumers = horizontal scale.
+```
+
+> **Interview signal:** "If our target throughput is 10K msg/sec and each consumer handles 100 msg/sec, we need 100 partitions and 100 consumers. Adding a 101st consumer does nothing until we add the 101st partition."
+
+#### 7.6.3 DLQ Strategy with Concrete Examples
+
+> **Interview relevance: Differentiator.** Not asked directly, but "what happens when a message keeps failing?" is a follow-up you'll get. Naming DLQ + max retries + replay is a top-of-band answer.
+
+```
+EXAMPLE 1 — Malformed partner webhook:
+  The partner sends a webhook with a JSON field we've never seen.
+  The schema validator throws. We retry 5 times (same error each time).
+  After 5 retries → DLQ.
+  → DLQ alert: "New schema detected from partner X; update parser."
+
+EXAMPLE 2 — Fraud check that always times out:
+  The fraud-detection API is degraded. Our retry times out.
+  We retry 3 times with exponential backoff. Still timing out.
+  → DLQ. The order is held for manual review (a human checks the queue).
+  → Without DLQ: infinite retries, order never completes.
+
+EXAMPLE 3 — Downstream service permanently broken:
+  The thumbnail service has a bug. Every image fails.
+  Retries won't help. → DLQ. The bug is fixed; the DLQ is replayed.
+
+STRATEGY:
+  - Always set a max retry count (5-10 is typical).
+  - Use exponential backoff with jitter between retries.
+  - Send to DLQ on max-retry-exceeded.
+  - Alert ops when DLQ depth > 0 (this is an SLO violation).
+  - Have a documented replay process (re-push DLQ to main queue after fix).
+```
+
+#### 7.6.4 Sequencer — Generating Monotonic IDs
+
+> **Interview relevance: Core.** Snowflake IDs / monotonic IDs come up in any system that needs ordered events (chat, payments, ride events, leaderboards). Knowing Snowflake's 64-bit layout (41 timestamp + 10 machine + 12 sequence) is a top-of-band answer.
+
+A sequencer is a service whose only job is to hand out monotonic IDs. Used to order events in a distributed system, even when producers are spread across machines.
+
+```
+THE PROBLEM:
+  - User generates 10 events from their phone.
+  - Server receives them out of order.
+  - Without IDs, you can't tell which came first.
+  - With timestamps, you have clock-skew issues across regions.
+
+THE SEQUENCER:
+  - A service (or part of the DB) hands out IDs that are:
+    - unique across the entire system
+    - monotonically increasing (later = larger)
+  - Each event is tagged with the sequencer's ID.
+  - Consumers sort by ID; the order is unambiguous.
+```
+
+**Common sequencer designs:**
+
+```
+DATABASE SEQUENCE:
+  INSERT INTO events (id, ...) VALUES (nextval('events_seq'), ...)
+  ✓ Simple. ✓ ACID.
+  ✗ The DB is the bottleneck for ID generation.
+  ✗ Doesn't scale across regions.
+
+TWITTER SNOWFLAKE (the famous one):
+  64-bit ID = timestamp_ms (41 bits) + machine_id (10 bits) + sequence (12 bits)
+  ✓ 4096 IDs per millisecond per machine.
+  ✓ 1024 machines per "datacenter ID".
+  ✓ Roughly time-ordered (high bits are the timestamp).
+  ✓ No central bottleneck — each machine generates its own.
+  → Used by: Twitter, Discord (modified), many other systems at scale.
+
+ULID / UUID v7:
+  ✓ Sortable by time (lexicographic order matches creation order).
+  ✓ Globally unique.
+  → Use when: you want sortable IDs without a central service.
+
+KAFKA OFFSET:
+  Each message in a Kafka partition has a monotonic offset.
+  ✓ Producer and consumer agree on order per partition.
+  ✗ Only meaningful within a partition.
+```
+
+**When ordering matters in system design:**
+
+```
+PAYMENT LEDGER:
+  Without ordering, the same $100 might appear to be debited twice
+  (two debits, then a credit) — or the credit might arrive first.
+  → Snowflake IDs on each transaction event. Sort by ID.
+
+CHAT MESSAGES:
+  Display order in a conversation must match send order.
+  → Snowflake IDs on each message. Sort by ID, display by sort.
+
+RIDE EVENTS:
+  pickup → en-route → arrived → started → completed → rated
+  → Each event has a Snowflake ID. Sort by ID. Anomalies are visible
+    (e.g., "started" without "arrived" is suspicious).
+
+LEADERBOARDS:
+  Two players hit "submit score" at the same millisecond.
+  Without an ordering, the order is non-deterministic.
+  → The leaderboard uses the sequencer ID as the tiebreaker.
+```
+
+> **Interview signal:** "For events that must be ordered (chat messages, payment transactions, ride events, leaderboard scores), I'd tag each with a Snowflake-style ID. The high bits are the timestamp; low bits are machine + sequence. This gives global uniqueness, monotonic ordering, and no central bottleneck."
+
+> **Common mistake:** Using UUID v4 for "ordered events" — UUID v4 is random; the order has no relation to creation time. The right tool is UUID v7, ULID, or Snowflake.
 
 ---
 
@@ -3780,6 +5580,129 @@ CREATE TABLE messages (
 **Fanout for group messages:**
 When Alice sends to a group of 1,000 people, the server must deliver to 1,000 connections. For large groups, do this asynchronously via a message queue — don't block Alice's send operation.
 
+#### 9.1.1 WhatsApp Architecture Deep Dive
+
+> **Interview relevance: Differentiator.** You're unlikely to be asked to design WhatsApp. But the pieces (Signal Protocol E2E, presence in Redis, fan-out for group chat, S3 presigned URLs) are senior details that come up in any chat or real-time design.
+
+The architecture above is the right shape but missing the production-grade pieces that distinguish WhatsApp from a toy chat app.
+
+```
+THE FULL PRODUCTION ARCHITECTURE:
+
+  ┌──────────┐
+  │ Mobile   │  E2E encryption (Signal Protocol)
+  │ App      │  Stores: message DB, media cache, contact list
+  └────┬─────┘
+       │ TLS over WebSocket (port 443)
+       │
+  ┌────▼──────────┐   Multiple chat servers, load-balanced,
+  │ WebSocket     │   sharded by user_id (sticky session).
+  │ Gateway       │   Terminates TLS, forwards to chat service.
+  └────┬──────────┘   Connection table: which user is on which server.
+       │
+  ┌────▼──────────┐
+  │ Chat Service  │   Stateless business logic.
+  │ (N instances) │   Receives messages, looks up recipient's server,
+  └────┬──────────┘   forwards via WebSocket. Records delivery state.
+       │
+  ┌────▼──────────┐
+  │ Message Store │   Append-only message log (Cassandra or HBase).
+  │ (Cassandra)   │   Partitioned by (sender_id, recipient_id) for 1:1
+  └───────────────┘   and by (group_id) for groups. Time-ordered.
+       │
+  ┌────────────────┐
+  │ Presence       │   Redis: user_id → {server_id, last_heartbeat}.
+  │ (Redis)        │   TTL on the key (90s). Subscribed pattern for
+  └────────────────┘   real-time presence updates.
+       │
+  ┌────────────────┐
+  │ Push           │   APNs (iOS), FCM (Android), Web Push (web).
+  │ Notification   │   Triggered when recipient is offline.
+  │ (APNs/FCM)     │   Wakes the device, delivers a "new message" alert.
+  └────────────────┘
+       │
+  ┌────────────────┐
+  │ Media Service  │   Upload: S3 presigned URL. Download: CDN.
+  │ (S3 + CDN)     │   Thumbnails generated by a separate worker.
+  └────────────────┘
+```
+
+**The pieces that go beyond "basic chat":**
+
+```
+1. END-TO-END ENCRYPTION (Signal Protocol):
+   - Keys generated on the device. The server NEVER sees plaintext.
+   - Each message has a one-time key derived from a key agreement.
+   - The server can see "Alice sent Bob a message" but not its content.
+   - Why: privacy + post-Snowden expectations. WhatsApp's differentiator.
+
+2. CONNECTION TABLE:
+   - Maps user_id → chat_server_id.
+   - When a WebSocket connection opens, register it.
+   - When a message arrives, look up the recipient's server.
+   - Heartbeat every 30s; if missed, evict.
+   - Stored in Redis with a 90s TTL.
+
+3. PRESENCE (online/offline/last seen):
+   - "Online" = WebSocket is open AND heartbeat is recent.
+   - "Last seen" = timestamp of last heartbeat.
+   - Subscribe pattern: friends want to know when you come online.
+   - Privacy: "last seen" is configurable (everyone, contacts, nobody).
+
+4. DELIVERY RECEIPTS (sent → delivered → read):
+   - SENT: the message left Alice's device.
+   - DELIVERED: the recipient's server received it.
+   - READ: the recipient opened the chat with the message visible.
+   - The app sends a receipt event back; the originating server
+     forwards to Alice's app.
+
+5. MEDIA HANDLING:
+   - Upload: client requests a presigned S3 URL from the API,
+     then PUTs the file directly to S3. S3 → CDN.
+   - Download: CDN URL.
+   - Thumbnails: client requests multiple sizes; server returns
+     URLs to each. Image service generates on demand or async.
+
+6. GROUP CHAT FAN-OUT:
+   - Group of 1,000: don't synchronously push to 1,000 connections.
+   - Sender → fan-out worker (via Kafka) → worker pushes to 1,000
+     recipient servers in parallel.
+   - Sender's app returns "sent" immediately; deliveries happen async.
+```
+
+> **The senior framing:** "For WhatsApp, I'd add (1) Signal Protocol E2E encryption so the server is just a router of encrypted blobs, (2) a connection table in Redis for fast recipient lookup, (3) presence with a TTL-based heartbeat, (4) a fan-out worker for group messages, and (5) media via S3 presigned URLs and CDN. The 1B-user scale is solved by sharding the chat service and the message store — no single DB holds all messages."
+
+#### 9.1.2 WebSocket Fan-Out at Scale
+
+> **Interview relevance: Differentiator.** Connection table + sticky session is the right answer to "how do you scale WebSockets to 10M connections." If the prompt is chat or live tracking, this is required; otherwise a strong bonus.
+
+> A common senior lesson on WebSockets highlights a problem most candidates miss.
+
+```
+THE PROBLEM:
+  10M users connected via WebSocket.
+  One server can hold 100K connections.
+  → Need 100 chat servers.
+  Now: Bob's message arrives at server A, but Bob is on server C.
+  → Server A must look up "where is Bob?" (connection table).
+  → Forward to server C. Server C delivers via WebSocket.
+
+THE LATENCY COST:
+  Alice → server A (5ms) → lookup (1ms) → server C (5ms) → Bob.
+  = 11ms of network for a "local" chat.
+  For 50ms SLO, this is fine. For 10ms SLO, it's half the budget.
+
+THE OPTIMIZATIONS:
+  1. Co-locate the connection table with the WebSocket (sticky session by user_id).
+     → Almost always: Alice's server has Bob too.
+     → No cross-server hop.
+  2. Use a fast in-memory table (Redis with hash structure) for the lookup.
+  3. Use a binary protocol (protobuf) instead of JSON for chat messages.
+  4. WebSocket compression (permessage-deflate) for text messages.
+```
+
+> **Senior signal:** "At 10M concurrent WebSocket connections, the chat service is sharded by user_id so each user sticks to one server. The connection table in Redis is the bridge — when Alice sends to Bob and Bob is on a different server, we forward via the table. The latency cost is ~10ms of network hop, which is fine for our 50ms SLO."
+
 ---
 
 ### 9.2 Design a Feed / Timeline (Instagram)
@@ -3898,6 +5821,190 @@ Driver App                                      Rider App
 
 **Real-time tracking (after match):**
 Once a rider is matched to a driver, the driver's location is pushed to the rider app via WebSocket every 4 seconds. The server fans out each driver's location update only to their current rider — not to all riders.
+
+---
+
+### 9.4 Design a Search Engine (Google Search)
+
+Search is the canonical "inverted index at massive scale" problem. The architecture below is what Google's crawler → indexer → query pipeline looks like at the shape level.
+
+**Requirements gathering:**
+
+```
+Functional:
+  - Crawl the web and discover pages
+  - Index pages (full-text, structure, links)
+  - Serve queries in <500ms
+  - Rank results by relevance
+  - Autocomplete / suggest
+  - Ads (separate auction system)
+
+Non-functional:
+  - 8.5B queries/day = ~100K QPS average, ~500K QPS peak
+  - 99.99% availability
+  - Index freshness: hours to days (web is huge; full re-crawl takes weeks)
+  - Scale to billions of pages
+```
+
+**Estimation:**
+
+```
+Web pages: ~50 billion (Google's known index size)
+Per page (HTML + text + metadata): ~100 KB on average
+Index size: 50B × 100KB = 5 PB raw
+After compression, dedup, and inverted-index structure: ~100-500 PB
+Queries per day: 8.5B
+QPS: 8.5B / 86400 ≈ 100K QPS average
+Peak (3x): ~300K QPS
+```
+
+**High-level design:**
+
+```
+CRAWLER PIPELINE              INDEXING PIPELINE              QUERY PIPELINE
+                                                      
+URL frontier                  Document parser          ┌─────────────┐
+   │                          (HTML → text)            │   User      │
+   ▼                              │                    │   browser   │
+HTTP fetchers                       ▼                    └──────┬──────┘
+(spider the web)             Extracted features               │
+   │                          (terms, links)                 ▼
+   ▼                              │                    DNS → Load balancer
+Document store                       ▼                       │
+(S3, raw HTML)                Inverted indexer              ▼
+   │                          (MapReduce)              Query server
+   │                              │                    (per-shard)
+   │                              ▼                       │
+   │                       Sharded inverted              ▼
+   │                       index (per-term)          Ranking service
+   │                              │                       │
+   │                              │                       ▼
+   └──────────────────────────────┴─────────────►  Results page
+                                                       (HTML)
+```
+
+**Component deep dives:**
+
+**Crawler:**
+
+```
+The crawler must:
+  - Discover new URLs (follow links from known pages)
+  - Fetch pages at scale (millions/sec)
+  - Respect robots.txt (don't crawl what owners forbid)
+  - Politeness (don't hammer one site)
+  - Detect duplicates (canonical URLs, content fingerprinting)
+
+Architecture:
+  URL frontier (priority queue of URLs to crawl)
+       │
+       ▼
+  N crawler workers (distributed)
+       │
+       ▼
+  HTTP fetcher (DNS → TCP → HTTP → body)
+       │
+       ▼
+  Content extractor (link extraction, text extraction)
+       │
+       ▼
+  Document store (S3, raw HTML)
+       │
+       ▼
+  URL discovery: extract links, add new ones to the frontier
+```
+
+**Inverted Index — the heart of search:**
+
+```
+FORWARD INDEX (one row per document):
+  doc_1: "the quick brown fox"
+  doc_2: "the lazy brown dog"
+  doc_3: "the brown brown fox"
+
+INVERTED INDEX (one row per term):
+  "the"   → [doc_1, doc_2, doc_3]
+  "quick" → [doc_1]
+  "brown" → [doc_1, doc_2, doc_3, doc_3]   ← "brown" appears 2x in doc_3
+  "fox"   → [doc_1, doc_3]
+  "lazy"  → [doc_2]
+  "dog"   → [doc_2]
+
+  → Look up "brown" → get the doc list → rank by relevance + authority.
+
+SHARDING THE INDEX:
+  - Shard by TERM (one shard holds the postings for some terms).
+  - Query "quick brown fox" hits 3 term shards in parallel.
+  - Merge the results, rank, return.
+
+WHY TERM-SHARDED:
+  ✓ Each term's posting list is large but bounded.
+  ✓ Queries are parallelized across shards.
+  ✗ "Find all docs containing X AND Y" requires a merge step.
+```
+
+**Ranking:**
+
+```
+THE PIPELINE (modern search):
+  1. RETRIEVAL: get top N=1000 candidate documents from the index.
+     Uses BM25 (term frequency / inverse document frequency) — fast.
+  2. RE-RANKING: a deep neural model scores the 1000 candidates.
+     Uses BERT-like models. More expensive; run on a small set.
+  3. POLICY: apply business rules (boost news, demote spam, ads).
+
+PAGE RANK (the original Google innovation):
+  - A page is important if many important pages link to it.
+  - Computed once across the whole web, offline.
+  - The score is one of many signals used in ranking.
+```
+
+**The query path (what happens when you type "best coffee" and hit enter):**
+
+```
+1. Browser → DNS → google.com (200ms)
+2. Load balancer → query server (5ms)
+3. Query server parses "best coffee":
+   - "best" → postings list (millions of docs)
+   - "coffee" → postings list (10M docs)
+   - Intersect: docs containing both
+4. Retrieve top 1000 candidates
+5. Re-rank with neural model (50ms)
+6. Apply policy + ads
+7. Render HTML page
+8. Total: 300-500ms
+```
+
+> **Senior signal:** "The query path is: DNS → LB → query server → term-shard index lookups (parallel) → BM25 candidate generation → neural re-ranking → policy → render. The crawlers and indexers run asynchronously; the query path is real-time and serves from the index. Index freshness is a separate concern from query latency — a freshly-crawled page can take hours to appear in results."
+
+#### 9.4.1 Elasticsearch in the Search Pipeline
+
+> **Interview relevance: Core.** Almost any e-commerce / log-search / in-app-search design uses Elasticsearch. Knowing the inverted-index shape and the indexer-via-Kafka pattern is required.
+
+Most teams don't build a Google. They use Elasticsearch (built on Apache Lucene) and call it a day. The architecture is similar in shape.
+
+```
+ELASTICSEARCH (Lucene underneath):
+  - Distributed inverted index.
+  - You write documents; ES tokenizes text and builds the index.
+  - You query with a JSON DSL; ES retrieves and ranks.
+  - You scale by adding nodes; ES auto-shards and rebalances.
+
+USES IN PRODUCTION:
+  - E-commerce search (Amazon, Shopify, ASOS)
+  - Log search (Datadog, Splunk, ELK)
+  - Slack message search
+  - GitHub code search
+  - App-internal "find that user by name"
+  - In-app site search (Coveo, Algolia as managed alternatives)
+
+SHAPE: same as a custom search engine, but pre-built.
+  Ingestion: app → Kafka → ES indexer
+  Storage:    sharded inverted index (ES handles sharding)
+  Query:      app → ES query node → top K results
+```
+
+> **Senior signal:** "For our e-commerce search, I'd use Elasticsearch as the search index, fed by a Kafka consumer reading product-change events from the primary DB. The query goes to ES, which returns the top 50 products. The primary DB stays the source of truth; ES is the read-optimized search index. Refresh interval of 1s is fine for product search."
 
 ---
 
@@ -4110,6 +6217,82 @@ Current state of `appt-123` = start from zero + apply event 1 + apply event 2 + 
 
 > **Senior signal:** "I'd use event sourcing for the appointment and prescription models because of the regulatory audit requirements, but not for the user's notification preferences — that's overkill where simple CRUD is fine."
 
+#### 11.1.1 Event Sourcing in the Wild
+
+> **Interview relevance: Differentiator.** Bank ledger / Git / Kafka log are the canonical examples. Useful when the prompt involves audit trail, financial ledger, or "the source of truth is the event log." Not asked as a topic, but real-world anchors are powerful.
+
+Event sourcing is a pattern older than microservices. Real systems that look like event sourcing:
+
+```
+BANK LEDGER (the canonical example):
+  You don't UPDATE an account balance.
+  You APPEND transactions: +$100, -$30, +$50.
+  The balance is the sum of all transactions.
+  ✓ Every cent is auditable.
+  ✓ Time travel: "what was Alice's balance on Dec 31 last year?"
+  → Used by: every bank's core system.
+
+GIT:
+  The repository IS the sequence of commits.
+  Current state = HEAD + working directory.
+  ✓ Every change is logged with author, message, parents.
+  ✓ You can checkout any commit (time travel).
+  ✓ You can replay a commit with a different tool (rebase).
+
+KAFKA LOG:
+  Each topic IS a sequence of events.
+  Consumers track their own offset.
+  ✓ Replay from any point.
+  ✓ Durable by default.
+
+LEADERBOARD:
+  "Score updated" events stream in.
+  The current score is the sum.
+  ✓ You can reconstruct the leaderboard at any historical moment.
+
+CHAT MESSAGE HISTORY:
+  Each message is an event.
+  "Message deleted" doesn't delete the event; it appends a "tombstone."
+  ✓ The history is preserved (regulatory requirements, e.g., HIPAA).
+```
+
+**Snapshot strategy — the trick to keeping event sourcing fast:**
+
+```
+THE PROBLEM:
+  An aggregate has 10,000 events. To compute the current state,
+  you replay all 10,000. That's slow.
+
+THE FIX: SNAPSHOTS.
+  Every N events (say, 100), save a snapshot of the current state.
+  To compute current state:
+    1. Load the latest snapshot (event 9900's state).
+    2. Replay only events 9901-10000.
+  → 100x faster.
+
+CONCRETE:
+  A bank account with 10 years of transactions (1000 transactions).
+  Without snapshot: replay 1000 events. 50ms.
+  With snapshot every 100: replay 10 events. 0.5ms.
+```
+
+**Schema evolution — the event sourcing landmine:**
+
+```
+EVENT V1 (3 years ago): AppointmentCreated { provider, time }
+EVENT V2 (1 year ago):  AppointmentCreated { provider, time, duration_minutes }
+EVENT V3 (today):        AppointmentCreated { provider_id, time, duration_minutes, location_id }
+
+The event store has events of all three versions. The consumer must
+handle all three. Strategies:
+  - Upcasting: a service reads V1, transforms to V3, returns.
+  - Versioned handlers: switch on event version, apply appropriate logic.
+  - Schema registry: enforce forward-compatibility at write time
+    (Protobuf/Avro with a schema registry).
+```
+
+> **Senior signal:** "For the bank ledger, I'd use event sourcing with snapshots every 100 events. The current balance is the latest snapshot plus the sum of transactions since. For querying 'all transactions in date range X', I'd use a CQRS read model: a stream consumer projects events into a search-friendly table."
+
 ---
 
 ### 11.2 CQRS — Command Query Responsibility Segregation
@@ -4197,6 +6380,112 @@ Orchestration-based saga (central coordinator tells each service what to do):
 **Choreography** is simpler to implement but harder to debug (the "saga" is implicit in event flow). **Orchestration** is explicit and easier to monitor, but the orchestrator becomes a coordination bottleneck.
 
 > In a meeting when someone says "we need a saga here," they mean: this operation spans multiple services and we need a way to handle partial failures with compensating actions.
+
+#### 11.3.1 Saga in the Real World — Concrete Examples
+
+> **Interview relevance: Core.** If you say "I'd use a saga for cross-service transactions," the interviewer will likely ask "for what?" Travel booking / ride-hailing / e-commerce / food delivery are the canonical examples. Required for any microservices design.
+
+Sagas aren't theoretical. The classic example is travel booking, but there are many.
+
+```
+TRAVEL BOOKING (the canonical example):
+  Step 1: Book flight      → success
+  Step 2: Book hotel       → success
+  Step 3: Book rental car  → FAILED
+  Compensate 2: Cancel hotel
+  Compensate 1: Cancel flight (refund as credit)
+
+RIDE-HAILING (Uber):
+  Step 1: Match rider to driver → success
+  Step 2: Driver accepts        → success
+  Step 3: Rider pays            → FAILED (card declined)
+  Compensate 2: Release driver from trip
+  Compensate 1: Mark match as failed
+  → User sees "we couldn't process your payment, please try again."
+
+E-COMMERCE ORDER:
+  Step 1: Reserve inventory     → success
+  Step 2: Charge payment        → success
+  Step 3: Create shipment       → FAILED (warehouse overloaded)
+  Compensate 2: Refund payment
+  Compensate 1: Release inventory
+  → User sees "we're temporarily out of stock."
+
+FOOD DELIVERY:
+  Step 1: Restaurant accepts    → success
+  Step 2: Payment authorized    → success
+  Step 3: Driver assigned       → FAILED (no driver available)
+  Compensate 2: Void payment authorization
+  Compensate 1: Cancel restaurant acceptance
+  → User sees "we couldn't find a driver; try again later."
+```
+
+**Choreography vs Orchestration — when to pick which:**
+
+```
+CHOREOGRAPHY (event-driven, no central coordinator):
+  Each service emits events; other services react.
+  ✓ No single bottleneck.
+  ✓ Each service stays simple (just listens for its events).
+  ✗ The "saga" is implicit — hard to see the full flow in one place.
+  ✗ Hard to debug ("which step failed?" requires tracing events).
+  ✗ Cyclic dependencies (service A depends on B's events which depend
+    on A's events).
+  → Use when: 3-5 services, simple flows, decentralized teams.
+
+ORCHESTRATION (central coordinator):
+  A dedicated service tells each service what to do, in order.
+  ✓ Full saga state is visible in one place (the orchestrator's DB).
+  ✓ Easy to add a step (just update the orchestrator).
+  ✓ Easy to monitor (saga completion time, failure rate per step).
+  ✗ The orchestrator is a new service to build and operate.
+  ✗ The orchestrator's DB becomes a write hotspot.
+  → Use when: 5+ services, complex flows, regulated industry (need audit).
+  → Tools: AWS Step Functions, Camunda, Temporal, Apache Airflow.
+```
+
+> **Senior signal:** "For a travel booking saga, I'd use orchestration. The flow is regulated (refund rules, audit requirements), the steps can change (add 'book airport transfer' tomorrow), and on-call needs to see the saga state in one place. AWS Step Functions or Temporal is the right tool."
+
+#### 11.3.2 CQRS in the Real World — Concrete Examples
+
+> **Interview relevance: Differentiator.** Useful when the prompt has fundamentally different read vs write shapes (social feed, e-commerce catalog, bank account). Not asked as a topic, but the e-commerce example is a strong anchor.
+
+```
+E-COMMERCE CATALOG:
+  Write side: product team updates products via admin UI → events.
+  Read side: Elasticsearch index, updated by event consumer, serves
+             the public-facing search.
+  ✓ Search is fast (single Elasticsearch query, no JOINs).
+  ✓ Search can be richer than the source (synonyms, scoring, boosts).
+  ✓ Write model can be normalized; read model can be denormalized.
+
+SOCIAL FEED (Twitter):
+  Write side: user posts a tweet → "TweetPosted" event in Kafka.
+  Read side:  a fan-out worker pushes the tweet to followers' timelines
+              (Redis cache or read-replica table).
+  ✓ Heavy lift (fan-out) happens async.
+  ✓ Timeline read is a single Redis lookup per user.
+
+BANK ACCOUNT:
+  Write side: transaction event in event log.
+  Read side:  materialized "current balance" view, maintained by a
+              stream consumer, queried by the UI.
+  ✓ Real-time write (the event log never lies).
+  ✓ Fast read (the view is pre-computed).
+  ✓ Multiple read views: "balance", "monthly statement",
+                         "spending-by-category" — all from the same log.
+
+RIDE STATUS:
+  Write side: trip events stream in (requested, matched, en-route,
+              arrived, started, completed, rated).
+  Read side:  a stream consumer maintains "current trip state" in
+              a fast KV store (Redis). User app reads from there.
+  ✓ The "current state" is always pre-computed and ready.
+  ✓ Multiple views for different consumers: rider app, driver app,
+                                              analytics, ops dashboard.
+```
+
+> **The senior rule of thumb:** "If the read shape is fundamentally different from the write shape, use CQRS. If they're the same (a simple CRUD app), don't."
 
 ---
 
@@ -4470,6 +6759,153 @@ When you describe a design, ask yourself: **what's the worst single thing that c
 
 > **The senior signal:** Naming **RPO** (Recovery Point Objective — how much data you can afford to lose) and **RTO** (Recovery Time Objective — how long recovery can take) is gold. These are the actual numbers you negotiate with the business.
 
+#### 12.0.1 Defense in Depth
+
+> **Interview relevance: Differentiator.** WAF + private subnet + RBAC + encryption at rest — the 7 layers. Not asked as a topic, but "how is this secure?" comes up implicitly. Naming the layers is a top-of-band answer.
+
+"Defense in depth" means layering security so a breach at one layer doesn't compromise the system. Every production system is attacked at the edge first; you need layers beyond the edge.
+
+```
+LAYER 1 — EDGE:
+  CDN + WAF + DDoS protection (Cloudflare, AWS Shield, CloudFront + WAF)
+  Blocks: SQL injection, XSS, path traversal, volumetric DDoS,
+          scanner traffic, geographic blocks.
+  Why: filters 99% of junk before it touches your infra.
+
+LAYER 2 — NETWORK:
+  Security groups, private subnets, VPCs, mTLS between services.
+  The database is in a private subnet — no public IP.
+  Why: even if a request bypasses the WAF, it can't reach internal systems.
+
+LAYER 3 — IDENTITY:
+  OAuth2 / OIDC at the API gateway. Per-user authn.
+  mTLS between services (each service has a certificate).
+  Why: every request is authenticated, every caller is identified.
+
+LAYER 4 — AUTHORIZATION:
+  RBAC + ABAC in the service. The user can do only what their role allows.
+  Why: a valid token doesn't grant access to everything.
+
+LAYER 5 — APPLICATION:
+  Input validation, output encoding, parameter binding, secrets in
+  a vault (AWS Secrets Manager, HashiCorp Vault), no secrets in code.
+  Why: prevent the most common code-level vulnerabilities (OWASP Top 10).
+
+LAYER 6 — DATA:
+  Encryption at rest (KMS-managed keys), encryption in transit (TLS),
+  tokenization for PII, key rotation.
+  Why: even if the database is breached, the data is unreadable.
+
+LAYER 7 — DETECTION:
+  SIEM, anomaly detection, audit logs reviewed by humans/ML.
+  Why: when an attack succeeds (and one will), you know fast.
+```
+
+> **Senior signal:** "For our public API, I'd put a WAF at the edge (Cloudflare or AWS WAF) to block OWASP Top 10 attacks. The API gateway enforces per-user authn. The app services are in a private subnet, no public IPs. The DB is encrypted at rest with KMS, and we rotate keys annually. Audit logs flow to a SIEM. This is defense in depth — six layers, each independent."
+
+#### 12.0.2 WAF — The Web Application Firewall
+
+> **Interview relevance: Differentiator.** OWASP Top 10 + AWS WAF + Cloudflare. Mentioned unprompted when discussing public API security. A cheap differentiator.
+
+```
+WAF (Web Application Firewall):
+  Sits in front of your web app. Inspects HTTP requests.
+  Blocks based on rules: signature-based (known patterns),
+  rate-based (too many requests), anomaly-based (unusual behavior).
+
+WHAT IT BLOCKS:
+  ✓ SQL injection:    ' OR 1=1 -- in a query parameter
+  ✓ XSS:              <script>alert('xss')</script> in a form
+  ✓ Path traversal:   ../../../../etc/passwd in a URL
+  ✓ RCE attempts:     ; rm -rf / in a header
+  ✓ Rate-based:       10K requests/sec from one IP
+  ✓ Geographic:       all traffic from country X (sanctions)
+  ✓ Bot detection:    headless browsers, known scanner user-agents
+
+CONCRETE EXAMPLES:
+  AWS WAF + CloudFront:
+    Ruleset: AWS Managed Rules + OWASP Top 10
+    Per-rule action: count, allow, block, challenge (CAPTCHA)
+    Cost: $5/month + $1/million requests
+
+  Cloudflare WAF:
+    Free tier: basic rules.
+    Pro:        full OWASP + custom rules + bot protection.
+    Cost:       $20/month.
+
+  ModSecurity:
+    Open-source, run as NGINX module.
+    ✓ Free, ✓ full control.
+    ✗ You operate it.
+
+IN THE INTERVIEW:
+  "I'd put a WAF in front of the public API as the first line of defense.
+   It blocks SQL injection, XSS, and volumetric abuse before the
+   requests reach my app servers. The WAF is configured with the
+   OWASP Top 10 ruleset plus a custom rule for our specific API."
+```
+
+#### 12.0.3 Resilience Patterns Cheat Sheet
+
+> **Interview relevance: Differentiator.** Naming retry / timeout / circuit breaker / bulkhead / rate limit / graceful degradation in one breath is a top-of-band moment. Required for any "how do you handle dependency failure?" question.
+
+"Resilience pattern" is the umbrella for the specific techniques you apply when a dependency is sick. The senior move is naming the *right* pattern for the *right* failure.
+
+```
+RETRY:
+  Try the call again. Most useful for transient failures (network blip, 503).
+  ✓ Easy. ✓ Works for idempotent operations.
+  ✗ Useless for permanent failures (404, 400).
+  ✗ Dangerous for non-idempotent operations (charging a credit card).
+  Use with: exponential backoff + jitter. Cap at 3-5 attempts.
+
+TIMEOUT:
+  Set a deadline on every external call. Always.
+  ✓ Prevents thread pile-up when a dependency is slow.
+  ✓ Forces the caller to make a decision (retry, fail, fallback).
+  ✗ Time too short: false positives. Too long: piles up.
+  Use: 100-500ms for a database call, 1-5s for a third-party API.
+
+CIRCUIT BREAKER:
+  Stop calling a sick dependency. Fail fast.
+  ✓ Prevents cascading failure.
+  ✓ Gives the sick dependency time to recover.
+  ✗ Requires tuning (what's the failure threshold?).
+  Use: in front of every external service.
+
+BULKHEAD:
+  Isolate dependencies. A failure in one doesn't take down the others.
+  ✓ Limits blast radius.
+  ✗ More moving parts.
+  Concrete: a separate thread pool for the payment API and another
+            for the search API. Payment API slow → search API unaffected.
+
+RATE LIMIT:
+  Cap the rate of incoming requests. Protects the system from
+  one client overwhelming the others.
+  ✓ Protects backend.
+  ✓ Fairness.
+  ✗ Doesn't fix a slow downstream.
+  Use: at the gateway, per-user.
+
+GRACEFUL DEGRADATION:
+  When a dependency is down, serve a degraded version of the feature.
+  ✓ Users see something instead of an error.
+  ✗ Hard to design well.
+  Concrete: search is down → return "popular items" instead of "no results".
+            map is down → return a static map image.
+
+CHAOS ENGINEERING:
+  Inject failures deliberately to test resilience.
+  ✓ Finds problems before users do.
+  ✗ Requires cultural buy-in (and Netflix-grade maturity).
+  Tools: Chaos Monkey, Gremlin, AWS Fault Injection Service.
+```
+
+> **Interview signal:** "For our service that calls Stripe, I'd put a circuit breaker in front. On 5 failures in 10 seconds, the circuit opens and new requests fail fast with a 503. We'd persist the pending payment in our DB and retry asynchronously when Stripe recovers. The user sees a 'payment processing' message, not a generic 500."
+
+---
+
 ---
 
 ### 12.1 SLI, SLO, SLA — The Reliability Hierarchy
@@ -4516,6 +6952,36 @@ Error budget: 0.1% of 30 days = 43.2 minutes of allowed downtime
 Error budgets make reliability decisions concrete: "We've consumed 80% of our error budget this month. We should not deploy risky changes before the month resets."
 
 > **Senior signal:** In a design interview, saying "I'd define SLOs upfront for the critical paths — the appointment booking API should target P99 < 300ms — and design the system's caching, replication strategy, and circuit breakers to protect that SLO" shows production ownership.
+
+#### 12.1.1 The SLA-to-Downtime Table
+
+> **Interview relevance: Differentiator.** Memorize 99.9% = 8.7h/year, 99.99% = 52min/year. The interviewer will accept a rough number; the senior answer cites it from memory.
+
+The exact downtime numbers are something senior candidates cite from memory. The table is the source of truth.
+
+```
+SLA         Per year          Per month        Per week
+99%         3.65 days         7.2 hours        1.68 hours
+99.9%       8.77 hours        43.2 min         10.1 min
+99.95%      4.38 hours        21.6 min         5.04 min
+99.99%      52.6 min          4.32 min         1.01 min
+99.999%     5.26 min          25.9 sec         6.05 sec
+```
+
+**How to use this in the interview:**
+
+```
+"For our chat service, I'd target 99.9% availability — that's
+ 8.7 hours of allowed downtime per year. I'd need 2-AZ
+ deployment with automated failover. For our payment service,
+ I'd target 99.99% — 52 minutes per year. That requires
+ multi-region active-active."
+
+"At 99.999%, I'm in 5-minutes-of-downtime-a-year territory.
+ That means 3+ regions active-active, automated failover
+ with chaos drills, and probably a dedicated SRE team.
+ I would NOT propose this for a 10-person startup."
+```
 
 ---
 
@@ -4617,6 +7083,103 @@ Named after the "canary in a coal mine" — a small population is exposed to the
 **When to use which:**
 - Blue/Green: large, risky migrations (database schema changes, infrastructure upgrades). Full traffic switch is clean.
 - Canary: typical feature releases. Safer for catching bugs that only appear at scale.
+
+#### 12.3.1 Rolling Deployment and Deployment by Service Type
+
+> **Interview relevance: Core.** "How do you deploy?" is a frequent question. Knowing rolling / blue-green / canary and when each fits (stateless vs stateful vs ML model) is required.
+
+Blue/green and canary are the two everyone knows. There's a third, often the default.
+
+```
+ROLLING DEPLOYMENT:
+  Replace instances of the old version one at a time, with a health
+  check between each. Continue while the cluster is healthy.
+  ✓ No idle capacity (no Blue and Green running simultaneously).
+  ✓ Incremental; can pause if something goes wrong.
+  ✗ Old and new versions serve traffic simultaneously during the deploy.
+    Schema/contract changes that aren't backward-compatible break.
+  ✗ Rollback is slow (have to roll instances back one at a time).
+  → Use for: stateless services with backward-compatible contracts.
+
+  Stage 1: [v1, v1, v1, v1, v1]  (5 instances)
+  Stage 2: [v2, v1, v1, v1, v1]  (one replaced)
+  Stage 3: [v2, v2, v1, v1, v1]
+  Stage 4: [v2, v2, v2, v1, v1]
+  ...
+  Stage N: [v2, v2, v2, v2, v2]
+```
+
+**Decision: which strategy for which service type:**
+
+```
+STATELESS MICROSERVICE (chat, search, recommendation):
+  → Rolling deployment.
+  → Old and new versions can coexist (no shared state).
+  → Rollback is just "redeploy the old image."
+
+STATEFUL SERVICE (Postgres, Kafka, Redis):
+  → Blue/Green. Database schema changes are the riskiest part of any
+    deploy. You want to be able to abort and roll back cleanly.
+  → Tools: pt-online-schema-change, gh-ost, AWS DMS, logical replication.
+
+ML MODEL (recommendation, ranking, fraud detection):
+  → Canary with A/B measurement. The model needs traffic to evaluate;
+    you can't tell if it's better from unit tests.
+  → Compare business metrics (CTR, fraud caught, conversion) between
+    canary and control.
+
+INFRASTRUCTURE / KUBERNETES UPGRADES:
+  → Blue/Green at the cluster level. Drain nodes from one cluster,
+    bring up nodes in the new cluster, switch the load balancer.
+  → Tools: cluster API, ArgoCD, Spinnaker.
+
+FRONT-END (web bundle, mobile app):
+  → No real "deploy" — apps are downloaded. For web bundles:
+    blue/green at the CDN (CloudFront with two origins, weighted).
+  → Mobile: phased rollout via app store (1% → 10% → 50% → 100%).
+```
+
+> **Senior signal:** "I'd use rolling deploys for our stateless services, blue/green for the database schema changes, and canary with A/B measurement for the ML model. Picking the right strategy per service type is the senior answer."
+
+#### 12.3.2 Auto-Scaling Strategies
+
+> **Interview relevance: Differentiator.** Not asked directly, but "how does your service scale?" comes up. Naming reactive + predictive + queue-depth is a top-of-band answer.
+
+Auto-scaling isn't "scale on CPU." It's a portfolio of strategies.
+
+```
+REACTIVE (scale when a metric crosses a threshold):
+  - CPU > 70% for 5 min  → add 2 instances
+  - Memory > 80%         → add 2 instances
+  - Queue depth > 1000   → add 2 consumers
+  - Request latency P99 > 500ms → add 2 instances
+  ✓ Reactive, predictable.
+  ✗ Reacts AFTER the problem. By the time CPU is 70%, users are
+    already feeling slowness.
+  ✗ Scale-down is slow (you don't want to thrash).
+
+PREDICTIVE / SCHEDULED (scale on a known schedule):
+  - "Every weekday at 8am, ensure min 10 instances."
+  - "Black Friday: pre-scale to 50 instances at 00:00."
+  ✓ Scale-up is zero-latency (instances are warm before traffic arrives).
+  ✗ Only works when the schedule is predictable.
+
+COLD-START-FRIENDLY (serverless-style):
+  - First request after idle pays a 1-3s cold-start tax.
+  - The benefit: zero cost when idle, infinite scale under load.
+  ✓ Cheapest for spiky async work.
+  ✗ Bad for user-facing paths with strict latency SLOs.
+
+QUEUE-DEPTH DRIVEN (the right pattern for async workers):
+  - "When the queue has > 1000 messages, add 5 consumers."
+  - "When queue depth drops below 100 for 5 min, remove consumers."
+  ✓ Auto-scales with actual work to be done, not arbitrary metrics.
+  ✓ Cheap (no scale-up until there's work).
+  → Use for: image thumbnail workers, ML inference workers,
+             webhook delivery workers.
+```
+
+> **Senior signal:** "For our API tier, I'd use reactive auto-scaling on CPU and request rate. For our async workers (image processing, email sending), I'd use queue-depth auto-scaling — workers scale with the work."
 
 ---
 
@@ -4937,6 +7500,134 @@ function canAccess(userId, resourceType, action):
 ```
 
 **Fine-grained control — attribute-based access:** RBAC alone is sometimes insufficient. A clinician should be able to read *their own patients'* records, but not any patient's record. This is **ABAC (Attribute-Based Access Control)** — "allow read if `record.assigned_clinician_id == requesting_user.id`." ABAC is more expressive but harder to reason about. A common approach: use RBAC for coarse control, ABAC for the fine-grained row-level check.
+
+#### 13.4.1 OAuth2 Grant Types and OIDC
+
+> **Interview relevance: Differentiator.** When the prompt involves "log in with Google" or third-party auth, knowing the grant-type cheat sheet (auth code + PKCE for mobile, client credentials for service-to-service) is a senior moment.
+
+When an interviewer says "use OAuth" without specifying, candidates freeze because OAuth2 has multiple grant types. Knowing which one is the senior move.
+
+```
+THE OAUTH2 GRANT TYPES — WHEN TO USE WHICH:
+
+  AUTHORIZATION CODE:
+    Used by: web apps, mobile apps (the standard for "log in with Google")
+    Flow: user → login at provider (Google, Auth0) → provider returns
+          a one-time code → app exchanges code for access token + refresh token
+    ✓ Most secure. Tokens never touch the browser directly.
+    ✓ Standard, supported by every major IdP.
+    → Use for: any consumer-facing app with third-party login.
+
+  AUTHORIZATION CODE + PKCE (Proof Key for Code Exchange):
+    Same as above, but with an extra code-verifier challenge.
+    ✓ Mandatory for mobile apps and SPAs since OAuth2.1.
+    ✓ Prevents authorization code interception attacks.
+    → Use for: mobile apps (always), single-page apps (always).
+
+  CLIENT CREDENTIALS:
+    Used by: service-to-service auth.
+    Flow: a service authenticates with its own client_id + client_secret →
+          gets an access token → calls another service.
+    ✓ No human in the loop.
+    → Use for: microservice A calling microservice B.
+
+  REFRESH TOKEN:
+    Used by: long-lived sessions.
+    Flow: the access token (short-lived, 15-60 min) is paired with a
+          refresh token (long-lived, days-weeks). When the access
+          token expires, the app uses the refresh token to get a new
+          one without the user logging in again.
+    ✓ Better UX. ✓ Tokens can be revoked.
+    → Use for: any app where the user shouldn't re-login frequently.
+
+  IMPLICIT (DEPRECATED in OAuth 2.1):
+    Used by: old SPAs that couldn't keep a client_secret.
+    ✗ Tokens returned directly in the URL fragment.
+    ✗ Vulnerable to token leakage. Removed from OAuth 2.1.
+    → Don't use. Use authorization code + PKCE instead.
+
+  PASSWORD (DEPRECATED):
+    Used by: legacy first-party apps that had to ask for a username/password.
+    ✗ App handles the user's password — never ideal.
+    → Don't use for new systems.
+
+OIDC (OPENID CONNECT):
+  OAuth2 + identity.
+  → The access token is for API authorization.
+  → The id_token (a JWT) is for "who is the user".
+  → Use when you need to know "who logged in", not just "is this
+    request authorized".
+```
+
+> **Interview signal:** "For the mobile app, I'd use OAuth2 Authorization Code with PKCE. The user logs in at the IdP, the IdP returns a code, the app exchanges it for an access token (15 min) + refresh token (30 days). When the access token expires, the app uses the refresh token silently. Tokens are stored in the iOS Keychain or Android EncryptedSharedPreferences."
+
+> **The Auth0/Keycloak/Cognito decision (cheat sheet):**
+
+```
+KEYCLOAK (self-hosted, open-source):
+  ✓ Free. Full control. No per-user cost.
+  ✓ Mature OIDC + SAML support.
+  ✗ You run it. HA, patching, upgrades are your problem.
+  → Use when: cost-sensitive, on-prem requirements, you have ops capacity.
+
+COGNITO (AWS managed):
+  ✓ Deep AWS integration (IAM, Lambda triggers, DynamoDB).
+  ✓ Pay per MAU; cheap for small apps.
+  ✗ AWS-only (vendor lock).
+  ✗ Limited customization vs Auth0/Keycloak.
+  → Use when: AWS-native stack, simple user pool, low ops appetite.
+
+AUTH0 (SaaS):
+  ✓ Best DX, best documentation, fastest to integrate.
+  ✓ Strong social login + enterprise connections.
+  ✗ Most expensive at scale (per-active-user pricing).
+  → Use when: time-to-market matters, complex identity features needed.
+```
+
+#### 13.4.2 JWT vs Session — The Tradeoff
+
+> **Interview relevance: Differentiator.** Not asked directly, but "how do you handle auth?" comes up often. Knowing the access/refresh split + revocation strategy is a top-of-band answer vs "use JWT."
+
+JWTs are popular and over-used. Knowing when NOT to use them is senior.
+
+```
+SERVER-SIDE SESSION:
+  - The server creates a session record (in Redis or DB).
+  - The cookie holds only an opaque session ID.
+  - Every request: look up the session by ID.
+  - To "log out", delete the session record (or set an expiry).
+  ✓ Instant revocation (delete the record).
+  ✓ Server has full control (can change session data on the fly).
+  ✓ The cookie is opaque — no info leak even if intercepted.
+  ✗ One DB/Redis lookup per request.
+  ✗ Sessions don't scale to stateless microservices without sticky LB.
+
+JWT (JSON Web Token):
+  - The token IS the user data, signed by the server.
+  - The client stores the token (cookie or local storage).
+  - Every request: verify the signature, read the user from the token.
+  - To "log out", you can't easily invalidate (token is self-contained).
+  ✓ Zero server-side lookup — scales perfectly across stateless services.
+  ✓ Mobile-friendly (no cookie required; bearer token in Authorization header).
+  ✗ Hard to revoke: until the token expires, anyone with it is "logged in".
+  ✗ Can't change user data on the fly (would need to re-issue all tokens).
+  ✗ Bigger payload (all the user data is in the token).
+  ✗ Storage in localStorage is XSS-vulnerable.
+```
+
+**The hybrid pattern most production systems use:**
+
+```
+  Access token:  JWT, 15-minute expiry, sent in Authorization header.
+  Refresh token: Opaque random string, 30-day expiry, stored in HttpOnly cookie.
+  Revocation:    the server keeps a "revoked token" list (Redis) checked on every
+                 request. Or: the refresh token is invalidated; the access token
+                 expires within 15 minutes anyway.
+
+  → Best of both: stateless verification, revocable refresh.
+```
+
+> **Interview trap:** "Use JWT" without specifying expiry, storage, and revocation is a junior answer. The senior answer names the access/refresh split, the storage location, and the revocation strategy.
 
 ---
 

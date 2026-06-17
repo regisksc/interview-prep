@@ -566,6 +566,56 @@ Hold Logic:
 
 </details>
 
+### Optimistic vs Pessimistic Locking
+
+> **Interview relevance: Differentiator.** Already covered in the Module 3.4.6 expansion; this is the booking-system-specific application of the same patterns.
+
+> **Why this matters:** "Use a Redis lock" is the easy answer. The senior answer is "for this case, optimistic locking with a version column is enough — pessimistic would be overkill, and Redis is a separate system that can fail."
+
+```
+FOR THIS BOOKING PROBLEM:
+
+  Option A — Pessimistic lock (Redis SETNX):
+    Every hold attempt acquires a lock.
+    ✓ Strong guarantee: no two clients ever hold the same slot.
+    ✗ Holds a Redis key for 5 minutes (held count = active attempts).
+    ✗ Redis is a separate system. If Redis is down, the booking stops.
+    ✗ Lock timeout / expiration must be carefully managed.
+
+  Option B — Database unique constraint:
+    Schema enforces one row per (provider, start_time).
+    ✓ Strong guarantee at the DB level. No separate system.
+    ✓ The DB is the system of record anyway.
+    ✗ Concurrent transactions serialize on the unique index.
+    ✗ Less flexible if the rule changes.
+
+  Option C — Optimistic lock with version column:
+    Add a `version` column to the slot row.
+    UPDATE slot SET status='held', version=version+1 WHERE id=... AND version=N
+    If 0 rows affected, the update lost a race; retry.
+    ✓ No external lock.
+    ✓ Works for low-contention slots.
+    ✗ High-contention slots retry a lot.
+
+  Option D — Postgres `SELECT ... FOR UPDATE` (pessimistic at DB level):
+    SELECT * FROM slot WHERE id=... FOR UPDATE;
+    UPDATE ...
+    ✓ Strong guarantee, no external system.
+    ✗ Holds a DB row lock for the transaction duration.
+    ✗ Can deadlock if multiple slots are involved.
+
+SENIOR ANSWER:
+  "For a single-slot hold, the database unique constraint is the
+  simplest correct answer — no external system, no race.
+  For high-contention slots (a hot trainer's first morning slot),
+  I'd add Redis SETNX as a fast-path optimization to avoid
+  hammering the DB. For a multi-slot booking ('book 5 sessions
+  for the next 5 weeks'), I'd use SELECT ... FOR UPDATE inside
+  a single transaction so all 5 slots lock atomically."
+```
+
+---
+
 ---
 
 ## Part 5: Real-Time Notifications (10 min)
@@ -896,6 +946,68 @@ User App                    Load Balancer          API Server           Redis   
 4. **Capacity planning**:
    - "Auto-scaling based on queue depth"
    - "Pre-warm cache before known high-traffic events"
+
+</details>
+
+### Q5: "What if the booking service itself crashes mid-booking?"
+
+> **Interview relevance: Core.** A common follow-up in any stateful-system design. The senior answer is the saga / outbox pattern. Required knowledge.
+
+<details>
+<summary>Answer</summary>
+
+**The partial-success problem** (the classic distributed-systems problem):
+
+1. **What might be partially done**:
+   - The hold was created in Redis.
+   - The DB transaction started but didn't commit.
+   - The user was charged.
+   - The notification was not sent.
+   - The audit log wasn't written.
+
+2. **The senior answer is the saga / outbox pattern**:
+   - "The booking service writes the booking to the DB AND a row in
+     an outbox table in the SAME transaction."
+   - "A background worker reads the outbox and publishes to Kafka."
+   - "Downstream services (payment, notification, audit) consume
+     the event and process it idempotently."
+   - "If the service crashes mid-booking, the transaction either
+     commits or rolls back atomically. No half-state."
+
+3. **The "what's the right answer" interview signal**:
+   - "I'd want to know: do we ever need to compensate? E.g., if the
+     payment succeeded but the booking record wasn't created, we
+     need a refund. This is the saga pattern. For this MVP I'd
+     accept the risk and add a reconciliation job that detects
+     'paid but not booked' and refunds the user."
+
+</details>
+
+### Q6: "Why use Redis for holds instead of just the database?"
+
+> **Interview relevance: Differentiator.** Tradeoff question. Top-of-band answer is "Redis for the ephemeral lock (latency + auto-expiry), DB for the persistent state." Not asked as a topic, but the right answer when the candidate is asked to defend their choice.
+
+<details>
+<summary>Answer</summary>
+
+The trade-off matrix:
+
+| | Redis hold | Database hold |
+|---|---|---|
+| Latency | 0.1-1ms | 5-50ms |
+| Auto-expiry | TTL built-in | App must run a cleanup job |
+| Hot path throughput | 100K+ ops/sec | 1K-10K ops/sec |
+| Cost of failure | "Anyone can grab the slot" | "Database is fine" |
+| Operational cost | One more system to run | None extra |
+
+**The senior answer:**
+
+"For the hold (a short-lived lock), Redis wins on latency, auto-expiry,
+and throughput. A 5-minute hold doesn't need ACID; it just needs a
+TTL. For the booking itself (the persistent record), the database
+wins — it has ACID, audit trails, joins, and is the system of
+record anyway. So we use both: Redis for the ephemeral lock, the
+DB for the persistent state."
 
 </details>
 
